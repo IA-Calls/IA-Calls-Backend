@@ -7,10 +7,8 @@ dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 
-// Función para iniciar el servidor
 const startServer = async () => {
   try {
-    // Conectar a la base de datos
     const dbConnected = await connectDB();
     
     if (!dbConnected) {
@@ -18,7 +16,6 @@ const startServer = async () => {
       process.exit(1);
     }
 
-    // Iniciar servidor
     app.listen(PORT, () => {
       console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
       console.log(`📍 Entorno: ${process.env.NODE_ENV || 'development'}`);
@@ -30,10 +27,8 @@ const startServer = async () => {
   }
 };
 
-// Iniciar servidor
 startServer();
 
-// Manejo de errores no capturados
 process.on('unhandledRejection', (err) => {
   console.error('Error no manejado:', err);
   process.exit(1);
@@ -42,4 +37,4 @@ process.on('unhandledRejection', (err) => {
 process.on('uncaughtException', (err) => {
   console.error('Excepción no capturada:', err);
   process.exit(1);
-}); 
+});

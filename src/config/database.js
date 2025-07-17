@@ -18,7 +18,7 @@ const dbConfig = {
   idleTimeoutMillis: 30000, // 30 segundos
   connectionTimeoutMillis: 10000, // 10 segundos para conectar
   
-  // Configuración adicional para GCP
+  // ---------nfiguración adicional para GCP
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,
 };
@@ -54,7 +54,7 @@ const connectDB = async () => {
   } catch (error) {
     console.error('❌ Error conectando a PostgreSQL (GCP):', error.message);
     console.error('🔍 Detalles del error:', {
-      code: error.code,
+      code: error,
       host: dbConfig.host,
       database: dbConfig.database,
       user: dbConfig.user
