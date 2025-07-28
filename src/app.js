@@ -48,7 +48,7 @@ app.post('/calls/outbound', async (req, res) => {
   }
 
   try {
-    const response = await fetch('https://twilio-call-754698887417.us-central1.run.app/outbound-call', {
+    const response = await fetch('https://369bbe0501eb.ngrok-free.app/outbound-call', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
