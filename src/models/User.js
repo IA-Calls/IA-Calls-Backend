@@ -139,6 +139,15 @@ class User {
       Object.assign(this, new User(result.rows[0]));
       return this;
     } catch (error) {
+      // Manejar errores específicos de duplicación
+      if (error.code === '23505') { // Duplicate key error en PostgreSQL
+        if (error.constraint === 'users_username_key') {
+          throw new Error('Ya existe un usuario con este username');
+        }
+        if (error.constraint === 'users_email_key') {
+          throw new Error('Ya existe un usuario con este email');
+        }
+      }
       throw new Error(`Error actualizando usuario: ${error.message}`);
     }
   }

@@ -181,6 +181,57 @@ app.get('/', (req, res) => {
   });
 });
 
+// Ruta temporal para probar actualización de usuarios (sin autenticación)
+app.put('/test-user-update/:id', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    const userId = parseInt(req.params.id);
+    const updateData = req.body;
+
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, message: 'ID de usuario inválido' });
+    }
+
+    // Buscar usuario
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+
+    // Validar campos únicos SOLO si se están cambiando
+    if (updateData.username !== undefined && updateData.username !== user.username) {
+      const existingUser = await User.findByUsername(updateData.username);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(409).json({ success: false, message: 'Ya existe un usuario con este username' });
+      }
+    }
+
+    if (updateData.email !== undefined && updateData.email !== user.email) {
+      const existingUser = await User.findByEmail(updateData.email);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(409).json({ success: false, message: 'Ya existe un usuario con este email' });
+      }
+    }
+
+    // Actualizar usuario
+    const updatedUser = await user.update(updateData);
+
+    res.json({
+      success: true,
+      message: 'Usuario actualizado exitosamente',
+      data: updatedUser.toJSON()
+    });
+
+  } catch (error) {
+    console.error('Error en test-user-update:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
 // Rutas no encontradas
 app.use('*', (req, res) => {
   res.status(404).json({
