@@ -28,13 +28,103 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Servir archivos estáticos
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
-// Ruta personalizada
+// Ruta personalizada mejorada con grupos
 app.get('/clients/pending', async (req, res) => {
   const { page = 1, limit = 5 } = req.query;
   try {
+    const Group = require('./models/Group');
+    const Client = require('./models/Client');
+    
+    // Obtener todos los grupos activos
+    const groups = await Group.findAll();
+    
+    if (groups.length > 0) {
+      // Para cada grupo, obtener sus clientes pendientes
+      const groupsWithClients = await Promise.all(
+        groups.map(async (group) => {
+          // Obtener clientes pendientes del grupo
+          const groupClients = await group.getClients({ 
+            limit: 100 // Obtener todos los clientes del grupo
+          });
+          
+          // Filtrar solo los clientes con status pending
+          const pendingClients = groupClients.filter(client => client.status === 'pending');
+          
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            color: group.color,
+            clientCount: pendingClients.length,
+            clients: pendingClients
+          };
+        })
+      );
+
+      // Filtrar grupos que tienen clientes pendientes
+      const groupsWithPendingClients = groupsWithClients.filter(group => group.clientCount > 0);
+
+      // También obtener clientes pendientes que no están en ningún grupo
+      const allPendingClients = await Client.findAll({ status: 'pending' });
+      const clientsInGroups = new Set();
+      
+      groupsWithPendingClients.forEach(group => {
+        group.clients.forEach(client => clientsInGroups.add(client.id));
+      });
+
+      const ungroupedClients = allPendingClients.filter(client => !clientsInGroups.has(client.id));
+
+      // Si hay clientes sin grupo, agregarlos como un grupo especial
+      if (ungroupedClients.length > 0) {
+        groupsWithPendingClients.push({
+          id: null,
+          name: "Sin Grupo",
+          description: "Clientes pendientes sin asignar a grupos",
+          color: "#6B7280",
+          clientCount: ungroupedClients.length,
+          clients: ungroupedClients
+        });
+      }
+
+      const totalPendingClients = allPendingClients.length;
+
+      return res.json({
+        success: true,
+        groups: groupsWithPendingClients,
+        totalGroups: groupsWithPendingClients.length,
+        totalClients: totalPendingClients,
+        message: 'Datos locales organizados por grupos',
+        source: 'local'
+      });
+    }
+
+    // Si no hay grupos, usar el servicio externo como fallback
     const response = await fetch(`https://calls-service-754698887417.us-central1.run.app/clients/pending?page=${page}&limit=${limit}`);
     const data = await response.json();
-    res.json(data);
+    
+    // Transformar la respuesta externa al formato esperado
+    const transformedData = {
+      success: true,
+      groups: [{
+        id: null,
+        name: "Clientes Externos",
+        description: "Clientes obtenidos del servicio externo",
+        color: "#3B82F6",
+        clientCount: data.clients ? data.clients.length : 0,
+        clients: data.clients || []
+      }],
+      totalGroups: 1,
+      totalClients: data.total || 0,
+      message: 'Datos del servicio externo',
+      source: 'external',
+      pagination: {
+        page: parseInt(page),
+        size: parseInt(limit),
+        total: data.total || 0
+      }
+    };
+    
+    res.json(transformedData);
   } catch (err) {
     res.status(500).json({ error: 'Proxy error', detail: err.message });
   }
@@ -89,6 +179,57 @@ app.get('/', (req, res) => {
     status: 'running',
     timestamp: new Date().toISOString()
   });
+});
+
+// Ruta temporal para probar actualización de usuarios (sin autenticación)
+app.put('/test-user-update/:id', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    const userId = parseInt(req.params.id);
+    const updateData = req.body;
+
+    if (isNaN(userId)) {
+      return res.status(400).json({ success: false, message: 'ID de usuario inválido' });
+    }
+
+    // Buscar usuario
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+
+    // Validar campos únicos SOLO si se están cambiando
+    if (updateData.username !== undefined && updateData.username !== user.username) {
+      const existingUser = await User.findByUsername(updateData.username);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(409).json({ success: false, message: 'Ya existe un usuario con este username' });
+      }
+    }
+
+    if (updateData.email !== undefined && updateData.email !== user.email) {
+      const existingUser = await User.findByEmail(updateData.email);
+      if (existingUser && existingUser.id !== userId) {
+        return res.status(409).json({ success: false, message: 'Ya existe un usuario con este email' });
+      }
+    }
+
+    // Actualizar usuario
+    const updatedUser = await user.update(updateData);
+
+    res.json({
+      success: true,
+      message: 'Usuario actualizado exitosamente',
+      data: updatedUser.toJSON()
+    });
+
+  } catch (error) {
+    console.error('Error en test-user-update:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
 });
 
 // Rutas no encontradas

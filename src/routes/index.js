@@ -10,6 +10,10 @@ const authRoutes = require('./auth');
 // Importar rutas de usuarios
 const userRoutes = require('./users');
 
+// Importar rutas de grupos y clientes
+const groupRoutes = require('./groups');
+const clientRoutes = require('./clients');
+
 // Importar middleware
 const { authenticate } = require('../middleware/auth');
 
@@ -18,6 +22,10 @@ router.use('/auth', authRoutes);
 
 // Rutas de usuarios
 router.use('/users', userRoutes);
+
+// Rutas de grupos y clientes
+router.use('/groups', groupRoutes);
+router.use('/clients', clientRoutes);
 
 // Rutas públicas
 router.get('/status', getStatus);

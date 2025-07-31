@@ -240,15 +240,31 @@ const updateUser = async (req, res) => {
       return sendError(res, 403, 'Solo los administradores pueden cambiar el estado de usuarios');
     }
 
-    // Preparar datos para actualizar
-    const updateData = {};
-    if (username !== undefined) updateData.username = username;
-    if (email !== undefined) {
+    // VALIDAR CAMPOS ÚNICOS SOLO SI SE ESTÁN CAMBIANDO
+    if (username !== undefined && username !== user.username) {
+      // Verificar si el nuevo username ya existe
+      const existingUserByUsername = await User.findByUsername(username);
+      if (existingUserByUsername && existingUserByUsername.id !== userId) {
+        return sendError(res, 409, 'Ya existe un usuario con este username');
+      }
+    }
+
+    if (email !== undefined && email !== user.email) {
+      // Verificar si el nuevo email ya existe
+      const existingUserByEmail = await User.findByEmail(email);
+      if (existingUserByEmail && existingUserByEmail.id !== userId) {
+        return sendError(res, 409, 'Ya existe un usuario con este email');
+      }
+      
       if (!isValidEmail(email)) {
         return sendError(res, 400, 'Formato de email inválido');
       }
-      updateData.email = email;
     }
+
+    // Preparar datos para actualizar
+    const updateData = {};
+    if (username !== undefined) updateData.username = username;
+    if (email !== undefined) updateData.email = email;
     if (firstName !== undefined) updateData.firstName = firstName;
     if (lastName !== undefined) updateData.lastName = lastName;
     if (role !== undefined) updateData.role = role;
@@ -268,8 +284,22 @@ const updateUser = async (req, res) => {
   } catch (error) {
     console.error('Error en updateUser:', error);
     
-    if (error.message.includes('Ya existe un usuario')) {
-      return sendError(res, 409, error.message);
+    // Manejar errores específicos de duplicación
+    if (error.message.includes('Ya existe un usuario') || 
+        error.message.includes('duplicate key value violates unique constraint')) {
+      if (error.message.includes('users_username_key')) {
+        return sendError(res, 409, 'Ya existe un usuario con este username');
+      }
+      if (error.message.includes('users_email_key')) {
+        return sendError(res, 409, 'Ya existe un usuario con este email');
+      }
+      return sendError(res, 409, 'Ya existe un usuario con estos datos');
+    }
+    
+    // Si es un error de validación del modelo, devolver el mensaje específico
+    if (error.message.includes('Error actualizando usuario:')) {
+      const specificError = error.message.replace('Error actualizando usuario: ', '');
+      return sendError(res, 400, specificError);
     }
     
     sendError(res, 500, 'Error interno del servidor', error.message);
