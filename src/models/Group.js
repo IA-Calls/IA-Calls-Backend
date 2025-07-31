@@ -5,7 +5,9 @@ class Group {
     this.id = groupData.id;
     this.name = groupData.name;
     this.description = groupData.description;
+    this.prompt = groupData.prompt;
     this.color = groupData.color || '#3B82F6';
+    this.favorite = groupData.favorite !== undefined ? groupData.favorite : false;
     this.isActive = groupData.is_active !== undefined ? groupData.is_active : true;
     this.createdBy = groupData.created_by;
     this.createdAt = groupData.created_at;
@@ -15,13 +17,13 @@ class Group {
   // Crear grupo
   static async create(groupData) {
     try {
-      const { name, description, color = '#3B82F6', createdBy } = groupData;
+      const { name, description, prompt, color = '#3B82F6', favorite = false, createdBy } = groupData;
       
       const result = await query(
-        `INSERT INTO "public"."groups" (name, description, color, created_by, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        `INSERT INTO "public"."groups" (name, description, prompt, color, favorite, created_by, is_active, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
          RETURNING *`,
-        [name, description, color, createdBy, true]
+        [name, description, prompt, color, favorite, createdBy, true]
       );
       
       return new Group(result.rows[0]);
@@ -194,6 +196,22 @@ class Group {
     } catch (error) {
       throw new Error(`Error contando clientes del grupo: ${error.message}`);
     }
+  }
+
+  // Método para serializar el grupo
+  toJSON() {
+    return {
+      id: this.id,
+      name: this.name,
+      description: this.description,
+      prompt: this.prompt,
+      color: this.color,
+      favorite: this.favorite,
+      isActive: this.isActive,
+      createdBy: this.createdBy,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
   }
 }
 

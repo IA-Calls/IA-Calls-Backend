@@ -54,14 +54,16 @@ app.get('/clients/pending', async (req, res) => {
             id: group.id,
             name: group.name,
             description: group.description,
+            prompt: group.prompt,
             color: group.color,
+            favorite: group.favorite,
             clientCount: pendingClients.length,
             clients: pendingClients
           };
         })
       );
 
-      // Filtrar grupos que tienen clientes pendientes
+      // Filtrar SOLO grupos que tienen clientes pendientes
       const groupsWithPendingClients = groupsWithClients.filter(group => group.clientCount > 0);
 
       // También obtener clientes pendientes que no están en ningún grupo
@@ -80,7 +82,9 @@ app.get('/clients/pending', async (req, res) => {
           id: null,
           name: "Sin Grupo",
           description: "Clientes pendientes sin asignar a grupos",
+          prompt: null,
           color: "#6B7280",
+          favorite: false,
           clientCount: ungroupedClients.length,
           clients: ungroupedClients
         });
@@ -231,6 +235,8 @@ app.put('/test-user-update/:id', async (req, res) => {
     });
   }
 });
+
+
 
 // Rutas no encontradas
 app.use('*', (req, res) => {
