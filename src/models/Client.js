@@ -294,6 +294,25 @@ class Client {
       throw new Error(`Error contando clientes: ${error.message}`);
     }
   }
+
+  // Método toJSON para serialización
+  toJSON() {
+    return {
+      id: this.id,
+      externalId: this.externalId,
+      name: this.name,
+      phone: this.phone,
+      email: this.email,
+      address: this.address,
+      category: this.category,
+      review: this.review,
+      status: this.status,
+      metadata: this.metadata,
+      isActive: this.isActive,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
+  }
 }
 
 module.exports = Client; 
