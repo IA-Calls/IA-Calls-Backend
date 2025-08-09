@@ -44,6 +44,15 @@ JWT_SECRET=tu_jwt_secret_muy_seguro_aqui_cambiar_en_produccion
 # ================================
 CLIENT_URL=http://localhost:3000
 API_URL=http://localhost:3000/api
+
+# ================================
+# CONFIGURACIÓN CORS
+# ================================
+# URL de tu aplicación Vercel (para resolver errores CORS)
+VERCEL_URL=https://ia-calls.vercel.app
+
+# URLs adicionales separadas por comas (opcional)
+# ADDITIONAL_CORS_ORIGINS=https://otro-dominio.com,https://app.miempresa.com
 ```
 
 ## 🌟 Ejemplo de Configuración Completa
@@ -59,6 +68,8 @@ DB_PASSWORD=mi_password_seguro
 JWT_SECRET=super_secret_jwt_key_change_in_production_minimum_32_chars
 CLIENT_URL=http://localhost:3000
 API_URL=http://localhost:3000/api
+VERCEL_URL=https://ia-calls.vercel.app
+ADDITIONAL_CORS_ORIGINS=https://staging.ia-calls.com,https://admin.ia-calls.com
 ```
 
 ## 🔐 Generar JWT_SECRET Seguro

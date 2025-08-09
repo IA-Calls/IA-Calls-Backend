@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS groups (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     description TEXT,
+    prompt TEXT, -- Campo para prompts personalizados
     color VARCHAR(7) DEFAULT '#3B82F6', -- Color hex para UI
+    favorite BOOLEAN DEFAULT false, -- Campo para marcar grupos como favoritos
     is_active BOOLEAN DEFAULT true,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

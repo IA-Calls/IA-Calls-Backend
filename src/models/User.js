@@ -11,6 +11,7 @@ class User {
     this.lastName = userData.last_name;
     this.role = userData.role || 'user';
     this.isActive = userData.is_active !== undefined ? userData.is_active : true;
+    this.time = userData.time; // Campo opcional para deadline
     this.createdAt = userData.created_at;
     this.updatedAt = userData.updated_at;
   }
@@ -18,17 +19,17 @@ class User {
   // Crear usuario
   static async create(userData) {
     try {
-      const { username, email, password, firstName, lastName, role = 'user' } = userData;
+      const { username, email, password, firstName, lastName, role = 'user', time } = userData;
       
       // Hashear la contraseña
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
       
       const result = await query(
-        `INSERT INTO "public"."users" (username, email, password, first_name, last_name, role, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        `INSERT INTO "public"."users" (username, email, password, first_name, last_name, role, is_active, time, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
          RETURNING *`,
-        [username, email, hashedPassword, firstName, lastName, role, true]
+        [username, email, hashedPassword, firstName, lastName, role, true, time]
       );
       
       return new User(result.rows[0]);
@@ -174,9 +175,22 @@ class User {
   // Obtener todos los usuarios activos
   static async findAll(options = {}) {
     try {
-      const { limit = 50, offset = 0, includeInactive = false } = options;
+      const { limit = 50, offset = 0, includeInactive = false, includeExpired = false } = options;
       
-      let whereClause = includeInactive ? '' : 'WHERE is_active = true';
+      let whereClause = '';
+      const conditions = [];
+      
+      if (!includeInactive) {
+        conditions.push('is_active = true');
+      }
+      
+      if (!includeExpired) {
+        conditions.push('(time IS NULL OR time > NOW())');
+      }
+      
+      if (conditions.length > 0) {
+        whereClause = 'WHERE ' + conditions.join(' AND ');
+      }
       
       const result = await query(
         `SELECT * FROM "public"."users" ${whereClause} 
@@ -217,6 +231,53 @@ class User {
     } catch (error) {
       console.error('Error verificando tabla users:', error.message);
       return false;
+    }
+  }
+
+  // Verificar si el usuario ha expirado
+  isExpired() {
+    if (!this.time) return false;
+    return new Date() > new Date(this.time);
+  }
+
+  // Verificar si el usuario está activo y no ha expirado
+  isActiveAndNotExpired() {
+    return this.isActive && !this.isExpired();
+  }
+
+  // Desactivar usuarios expirados (método estático)
+  static async deactivateExpiredUsers() {
+    try {
+      const result = await query(
+        `UPDATE "public"."users" 
+         SET is_active = false, updated_at = NOW() 
+         WHERE time IS NOT NULL 
+           AND time <= NOW() 
+           AND is_active = true
+         RETURNING *`
+      );
+      
+      return result.rows.map(row => new User(row));
+    } catch (error) {
+      throw new Error(`Error desactivando usuarios expirados: ${error.message}`);
+    }
+  }
+
+  // Obtener usuarios próximos a expirar
+  static async getUsersExpiringSoon(daysThreshold = 7) {
+    try {
+      const result = await query(
+        `SELECT * FROM "public"."users" 
+         WHERE time IS NOT NULL 
+           AND time > NOW() 
+           AND time <= NOW() + INTERVAL '${daysThreshold} days'
+           AND is_active = true
+         ORDER BY time ASC`
+      );
+      
+      return result.rows.map(row => new User(row));
+    } catch (error) {
+      throw new Error(`Error obteniendo usuarios próximos a expirar: ${error.message}`);
     }
   }
 

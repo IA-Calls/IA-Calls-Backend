@@ -17,7 +17,7 @@ const getGroups = async (req, res) => {
       groups.map(async (group) => {
         const clientCount = await group.countClients();
         const groupData = {
-          ...group,
+          ...group.toJSON(),
           clientCount
         };
 
@@ -63,7 +63,7 @@ const getGroupById = async (req, res) => {
       });
     }
 
-    const groupData = { ...group };
+    const groupData = group.toJSON();
     groupData.clientCount = await group.countClients();
 
     if (include_clients === 'true') {
@@ -96,7 +96,7 @@ const getGroupById = async (req, res) => {
 // Crear nuevo grupo
 const createGroup = async (req, res) => {
   try {
-    const { name, description, color } = req.body;
+    const { name, description, prompt, color, favorite } = req.body;
     const createdBy = req.user?.id || 1; // Usar ID del usuario autenticado o admin por defecto
 
     if (!name) {
@@ -106,17 +106,21 @@ const createGroup = async (req, res) => {
       });
     }
 
-    const group = await Group.create({
+    const groupData = {
       name,
       description,
+      prompt,
       color,
+      favorite: favorite || false,
       createdBy
-    });
+    };
+
+    const group = await Group.create(groupData);
 
     res.status(201).json({
       success: true,
       message: 'Grupo creado exitosamente',
-      data: group
+      data: group.toJSON()
     });
   } catch (error) {
     console.error('Error creando grupo:', error);
@@ -132,7 +136,7 @@ const createGroup = async (req, res) => {
 const updateGroup = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, color } = req.body;
+    const { name, description, prompt, color, favorite } = req.body;
 
     const group = await Group.findById(id);
     if (!group) {
@@ -142,12 +146,12 @@ const updateGroup = async (req, res) => {
       });
     }
 
-    await group.update({ name, description, color });
+    await group.update({ name, description, prompt, color, favorite });
 
     res.json({
       success: true,
       message: 'Grupo actualizado exitosamente',
-      data: group
+      data: group.toJSON()
     });
   } catch (error) {
     console.error('Error actualizando grupo:', error);
