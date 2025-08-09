@@ -103,6 +103,16 @@ const login = async (req, res) => {
       return sendError(res, 401, 'Cuenta desactivada');
     }
 
+    // Verificar si el usuario ha expirado por tiempo
+    if (user.time && user.isExpired()) {
+      console.log(`⚠️ Usuario ${user.username} ha expirado por tiempo límite. Desactivando cuenta...`);
+      
+      // Cambiar is_active a false
+      await user.update({ is_active: false });
+      
+      return sendError(res, 401, 'Cuenta expirada por tiempo límite');
+    }
+
     // Verificar contraseña
     const isPasswordValid = await user.verifyPassword(password);
     if (!isPasswordValid) {
@@ -145,6 +155,16 @@ const verifyToken = async (req, res) => {
       return sendError(res, 401, 'Usuario no válido');
     }
 
+    // Verificar si el usuario ha expirado por tiempo
+    if (user.time && user.isExpired()) {
+      console.log(`⚠️ Usuario ${user.username} ha expirado por tiempo límite durante verificación de token. Desactivando cuenta...`);
+      
+      // Cambiar is_active a false
+      await user.update({ is_active: false });
+      
+      return sendError(res, 401, 'Cuenta expirada por tiempo límite');
+    }
+
     sendResponse(res, 200, {
       user: user.toJSON(),
       tokenValid: true
@@ -171,6 +191,16 @@ const getProfile = async (req, res) => {
     
     if (!user) {
       return sendError(res, 404, 'Usuario no encontrado');
+    }
+
+    // Verificar si el usuario ha expirado por tiempo
+    if (user.time && user.isExpired()) {
+      console.log(`⚠️ Usuario ${user.username} ha expirado por tiempo límite durante obtención de perfil. Desactivando cuenta...`);
+      
+      // Cambiar is_active a false
+      await user.update({ is_active: false });
+      
+      return sendError(res, 401, 'Cuenta expirada por tiempo límite');
     }
 
     sendResponse(res, 200, user.toJSON(), 'Perfil obtenido exitosamente');

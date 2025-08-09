@@ -12,7 +12,9 @@ const getAllUsers = async (req, res) => {
       isActive, 
       search,
       sortBy = 'created_at',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      includeExpired = false,
+      expiringSoon
     } = req.query;
 
     // Validar parámetros
@@ -24,18 +26,7 @@ const getAllUsers = async (req, res) => {
     const conditions = [];
     const params = [];
     let paramCount = 1;
-
-    // Filtro por estado activo/inactivo (por defecto solo activos)
-    if (isActive !== undefined && req.user.role === 'admin') {
-      conditions.push(`is_active = $${paramCount}`);
-      params.push(isActive === 'true');
-      paramCount++;
-    } else {
-      conditions.push(`is_active = $${paramCount}`);
-      params.push(true);
-      paramCount++;
-    }
-
+    
     // Filtro por rol
     if (role && ['user', 'admin', 'moderator'].includes(role)) {
       conditions.push(`role = $${paramCount}`);
@@ -51,7 +42,7 @@ const getAllUsers = async (req, res) => {
     }
 
     // Validar campos de ordenamiento
-    const allowedSortFields = ['created_at', 'updated_at', 'username', 'email', 'role'];
+    const allowedSortFields = ['created_at', 'updated_at', 'username', 'email', 'role', 'time'];
     const sortField = allowedSortFields.includes(sortBy) ? sortBy : 'created_at';
     const order = sortOrder.toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
@@ -62,7 +53,7 @@ const getAllUsers = async (req, res) => {
     const originalParams = [...params];
     
     const usersQuery = `
-      SELECT id, username, email, first_name, last_name, role, is_active, created_at, updated_at
+      SELECT id, username, email, first_name, last_name, role, is_active, time, created_at, updated_at
       FROM "public"."users" 
       ${whereClause}
       ORDER BY ${sortField} ${order}
@@ -91,7 +82,7 @@ const getAllUsers = async (req, res) => {
         hasNext: pageNum < totalPages,
         hasPrev: pageNum > 1
       },
-      filters: { role, isActive, search, sortBy: sortField, sortOrder: order }
+      filters: { role, isActive, search, sortBy: sortField, sortOrder: order, includeExpired, expiringSoon }
     }, 'Usuarios obtenidos exitosamente');
 
   } catch (error) {
@@ -140,7 +131,7 @@ const getUserById = async (req, res) => {
 // Crear nuevo usuario (solo admins)
 const createUser = async (req, res) => {
   try {
-    const { username, email, password, firstName, lastName, role = 'user' } = req.body;
+    const { username, email, password, firstName, lastName, role = 'user', time } = req.body;
 
     // Validar campos requeridos
     const validation = validateRequired(req.body, ['username', 'email', 'password']);
@@ -167,6 +158,22 @@ const createUser = async (req, res) => {
       return sendError(res, 400, 'Rol inválido');
     }
 
+    // Validar campo time si se proporciona
+    let validatedTime = null;
+    if (time) {
+      const timeDate = new Date(time);
+      if (isNaN(timeDate.getTime())) {
+        return sendError(res, 400, 'Formato de fecha inválido para el campo time');
+      }
+      
+      // Verificar que la fecha no sea en el pasado
+      if (timeDate <= new Date()) {
+        return sendError(res, 400, 'La fecha límite debe ser futura');
+      }
+      
+      validatedTime = timeDate.toISOString();
+    }
+
     // Solo admins pueden crear otros admins
     if (role === 'admin' && req.user.role !== 'admin') {
       return sendError(res, 403, 'Solo los administradores pueden crear otros administradores');
@@ -179,11 +186,12 @@ const createUser = async (req, res) => {
       password,
       firstName,
       lastName,
-      role
+      role,
+      time: validatedTime
     });
 
     // Registrar actividad
-    await logActivity(req.user.id, 'user_created', `Usuario ${username} creado`, req, { createdUserId: newUser.id });
+    await logActivity(req.user.id, 'user_created', `Usuario ${username} creado${validatedTime ? ` con fecha límite ${validatedTime}` : ''}`, req, { createdUserId: newUser.id });
 
     sendResponse(res, 201, newUser.toJSON(), 'Usuario creado exitosamente');
 
@@ -415,11 +423,103 @@ const logActivity = async (userId, action, description, req, metadata = {}) => {
   }
 };
 
+// Desactivar usuarios expirados
+const deactivateExpiredUsers = async (req, res) => {
+  try {
+    // Solo admins pueden ejecutar esta acción
+    if (req.user.role !== 'admin') {
+      return sendError(res, 403, 'Solo los administradores pueden ejecutar esta acción');
+    }
+
+    const deactivatedUsers = await User.deactivateExpiredUsers();
+    
+    // Registrar actividad
+    await logActivity(req.user.id, 'users_deactivated', `${deactivatedUsers.length} usuarios expirados desactivados`, req, { 
+      deactivatedCount: deactivatedUsers.length,
+      deactivatedUsers: deactivatedUsers.map(u => ({ id: u.id, username: u.username }))
+    });
+
+    sendResponse(res, 200, {
+      deactivatedCount: deactivatedUsers.length,
+      deactivatedUsers: deactivatedUsers.map(u => u.toJSON())
+    }, `${deactivatedUsers.length} usuarios expirados han sido desactivados`);
+
+  } catch (error) {
+    console.error('Error en deactivateExpiredUsers:', error);
+    sendError(res, 500, 'Error interno del servidor', error.message);
+  }
+};
+
+// Obtener usuarios próximos a expirar
+const getUsersExpiringSoon = async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const daysThreshold = Math.min(30, Math.max(1, parseInt(days) || 7)); // Entre 1 y 30 días
+
+    const expiringUsers = await User.getUsersExpiringSoon(daysThreshold);
+
+    sendResponse(res, 200, {
+      users: expiringUsers.map(u => u.toJSON()),
+      daysThreshold,
+      count: expiringUsers.length
+    }, 'Usuarios próximos a expirar obtenidos exitosamente');
+
+  } catch (error) {
+    console.error('Error en getUsersExpiringSoon:', error);
+    sendError(res, 500, 'Error interno del servidor', error.message);
+  }
+};
+
+// Obtener estadísticas de usuarios con información de expiración
+const getUserStatsWithExpiration = async (req, res) => {
+  try {
+    // Solo admins pueden ver estas estadísticas
+    if (req.user.role !== 'admin') {
+      return sendError(res, 403, 'Solo los administradores pueden ver estas estadísticas');
+    }
+
+    const [
+      totalUsers,
+      activeUsers,
+      inactiveUsers,
+      usersWithDeadline,
+      usersExpiringSoon,
+      expiredUsers
+    ] = await Promise.all([
+      User.count(true), // Total incluyendo inactivos
+      User.count(false), // Solo activos
+      query('SELECT COUNT(*) FROM "public"."users" WHERE is_active = false'),
+      query('SELECT COUNT(*) FROM "public"."users" WHERE time IS NOT NULL'),
+      query('SELECT COUNT(*) FROM "public"."users" WHERE time IS NOT NULL AND time > NOW() AND time <= NOW() + INTERVAL \'7 days\' AND is_active = true'),
+      query('SELECT COUNT(*) FROM "public"."users" WHERE time IS NOT NULL AND time <= NOW() AND is_active = true')
+    ]);
+
+    const stats = {
+      total: totalUsers,
+      active: activeUsers,
+      inactive: parseInt(inactiveUsers.rows[0].count),
+      withDeadline: parseInt(usersWithDeadline.rows[0].count),
+      expiringSoon: parseInt(usersExpiringSoon.rows[0].count),
+      expired: parseInt(expiredUsers.rows[0].count),
+      withoutDeadline: totalUsers - parseInt(usersWithDeadline.rows[0].count)
+    };
+
+    sendResponse(res, 200, stats, 'Estadísticas de usuarios obtenidas exitosamente');
+
+  } catch (error) {
+    console.error('Error en getUserStatsWithExpiration:', error);
+    sendError(res, 500, 'Error interno del servidor', error.message);
+  }
+};
+
 module.exports = {
   getAllUsers,
   getUserById,
   createUser,
   updateUser,
   deleteUser,
-  getUserStats
+  getUserStats,
+  deactivateExpiredUsers,
+  getUsersExpiringSoon,
+  getUserStatsWithExpiration
 }; 

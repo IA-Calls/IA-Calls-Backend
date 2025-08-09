@@ -12,7 +12,10 @@ const {
   createUser,
   updateUser,
   deleteUser,
-  getUserStats
+  getUserStats,
+  deactivateExpiredUsers,
+  getUsersExpiringSoon,
+  getUserStatsWithExpiration
 } = require('../controllers/users');
 
 // ========================================
@@ -31,6 +34,18 @@ const {
 // GET /api/users/stats - Obtener estadísticas de usuarios
 // Acceso: Solo administradores
 router.get('/stats', authenticate, requireAdmin, getUserStats);
+
+// GET /api/users/stats/expiration - Obtener estadísticas de usuarios con información de expiración
+// Acceso: Solo administradores
+router.get('/stats/expiration', authenticate, requireAdmin, getUserStatsWithExpiration);
+
+// POST /api/users/deactivate-expired - Desactivar usuarios expirados
+// Acceso: Solo administradores
+router.post('/deactivate-expired', authenticate, requireAdmin, deactivateExpiredUsers);
+
+// GET /api/users/expiring-soon - Obtener usuarios próximos a expirar
+// Acceso: Solo administradores
+router.get('/expiring-soon', authenticate, requireAdmin, getUsersExpiringSoon);
 
 // ========================================
 // RUTAS GENERALES

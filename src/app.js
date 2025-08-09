@@ -16,12 +16,61 @@ app.use(helmet());
 
 // Configurar CORS
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true
+  origin: function (origin, callback) {
+    // Lista de orígenes permitidos desde variables de entorno
+    const allowedOrigins = [
+      process.env.CLIENT_URL || 'http://localhost:3000',
+      'https://ia-calls.vercel.app',
+      'https://gb334706-5000.use2.devtunnels.ms', // Agregar la URL del backend también
+      // Agregar más URLs aquí si es necesario
+      ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
+    ];
+    
+    // Permitir requests sin origin (como aplicaciones móviles o Postman)
+    if (!origin) {
+      console.log('✅ CORS: Request sin origin permitido');
+      return callback(null, true);
+    }
+    
+    // Verificar si el origin está en la lista de permitidos
+    if (allowedOrigins.includes(origin)) {
+      console.log(`✅ CORS: Origin permitido: ${origin}`);
+      return callback(null, true);
+    }
+    
+    // Log para debugging
+    console.log(`🚫 CORS bloqueado para origin: ${origin}`);
+    console.log(`✅ Orígenes permitidos: ${allowedOrigins.join(', ')}`);
+    return callback(new Error('No permitido por CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-Requested-With'],
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 }));
 
-// Logging
-app.use(morgan('combined'));
+// Middleware específico para manejar OPTIONS requests
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    console.log(`🔍 OPTIONS request detectado para: ${req.path}`);
+    console.log(`📋 Headers de la request:`, req.headers);
+    
+    // Configurar headers de CORS para OPTIONS
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 horas
+    
+    // Responder inmediatamente a OPTIONS
+    return res.status(200).end();
+  }
+  next();
+});
+
+// Logging simplificado - solo endpoint y método
+app.use(morgan(':method :url :status'));
 
 // Parsear JSON y URL encoded
 app.use(express.json({ limit: '10mb' }));
@@ -176,116 +225,6 @@ app.post('/calls/outbound', async (req, res) => {
   }
 });
 
-// Endpoint para carga masiva de clientes desde Excel
-app.post('/clients/upload-excel', async (req, res) => {
-  const { groupId } = req.body;
-  
-  try {
-    const Group = require('./models/Group');
-    const Client = require('./models/Client');
-    
-    // Validar que el grupo existe si se proporciona
-    let targetGroup = null;
-    if (groupId) {
-      targetGroup = await Group.findById(parseInt(groupId));
-      if (!targetGroup) {
-        return res.status(404).json({
-          success: false,
-          message: 'Grupo no encontrado'
-        });
-      }
-    }
-
-    // Hacer la petición al servicio externo
-    const response = await fetch('https://excel-api-754698887417.us-central1.run.app/clients/upload-excel', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(req.body) // Reenviar el body original (archivo Excel)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return res.status(response.status).json({
-        success: false,
-        message: errorData.message || 'Error en el servicio de carga masiva',
-        detail: errorData
-      });
-    }
-
-    const result = await response.json();
-    
-    // Si la carga fue exitosa y se especificó un grupo, asignar los clientes
-    if (result.success && targetGroup && result.clients && Array.isArray(result.clients)) {
-      const assignmentResults = await Promise.all(
-        result.clients.map(async (clientData) => {
-          try {
-            // Buscar o crear el cliente en la base de datos local
-            let client = await Client.findByExternalId(clientData.external_id || clientData._id);
-            
-            if (!client) {
-              // Crear el cliente si no existe
-              client = await Client.syncFromExternal(clientData);
-            }
-            
-            // Asignar al grupo
-            await targetGroup.addClient(client.id);
-            
-            return {
-              success: true,
-              clientId: client.id,
-              clientName: client.name,
-              action: 'assigned_to_group'
-            };
-          } catch (error) {
-            return {
-              success: false,
-              clientName: clientData.name || 'Cliente desconocido',
-              error: error.message
-            };
-          }
-        })
-      );
-
-      const successCount = assignmentResults.filter(r => r.success).length;
-      const errorCount = assignmentResults.filter(r => !r.success).length;
-
-      return res.json({
-        success: true,
-        message: `Carga masiva completada y ${successCount} clientes asignados al grupo "${targetGroup.name}"`,
-        data: {
-          ...result,
-          groupAssignment: {
-            groupId: targetGroup.id,
-            groupName: targetGroup.name,
-            totalClients: result.clients.length,
-            successfullyAssigned: successCount,
-            assignmentErrors: errorCount,
-            assignmentDetails: assignmentResults
-          }
-        }
-      });
-    }
-
-    // Si no se especificó grupo, solo devolver el resultado original
-    return res.json({
-      success: true,
-      message: 'Carga masiva completada (sin asignación a grupo)',
-      data: result
-    });
-
-  } catch (error) {
-    console.error('Error en carga masiva:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Error en el proxy de carga masiva',
-      detail: error.message
-    });
-  }
-});
-
-// Configurar multer para manejo de archivos
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -309,6 +248,8 @@ app.post('/clients/extract-excel', upload.single('file'), async (req, res) => {
   try {
     const Group = require('./models/Group');
     const Client = require('./models/Client');
+    const storageService = require('./services/storage');
+    const UploadedFile = require('./models/UploadedFile');
     
     // Validar que el archivo se subió
     if (!req.file) {
@@ -320,6 +261,7 @@ app.post('/clients/extract-excel', upload.single('file'), async (req, res) => {
 
     const { groupId } = req.body;
     const filename = req.file.originalname;
+    const userId = req.user ? req.user.id : 1; // Usuario por defecto si no hay autenticación
 
     // Validar que el grupo existe si se proporciona
     let targetGroup = null;
@@ -487,6 +429,49 @@ app.post('/clients/extract-excel', upload.single('file'), async (req, res) => {
     const successCount = assignmentResults.filter(r => r.success).length;
     const assignmentErrors = assignmentResults.filter(r => !r.success).length;
 
+    // Subir archivo al bucket de Google Cloud Storage
+    let uploadResult = null;
+    try {
+      uploadResult = await storageService.uploadFile(
+        req.file.buffer,
+        filename,
+        {
+          extractedClients: extractedClients.length,
+          successfullyProcessed: createdClients.length,
+          processingErrors: creationErrors.length,
+          parsingErrors: errors.length,
+          groupId: targetGroup ? targetGroup.id : null,
+          groupName: targetGroup ? targetGroup.name : null,
+          uploadedBy: userId
+        }
+      );
+
+      // Guardar registro en la base de datos
+      await UploadedFile.create({
+        originalName: filename,
+        fileName: uploadResult.fileName,
+        bucketUrl: uploadResult.bucketUrl,
+        publicUrl: uploadResult.publicUrl,
+        downloadUrl: uploadResult.downloadUrl,
+        fileSize: uploadResult.size,
+        contentType: uploadResult.contentType,
+        uploadedBy: userId,
+        groupId: targetGroup ? targetGroup.id : null,
+        metadata: {
+          extractedClients: extractedClients.length,
+          successfullyProcessed: createdClients.length,
+          processingErrors: creationErrors.length,
+          parsingErrors: errors.length,
+          groupName: targetGroup ? targetGroup.name : null,
+          uploadMethod: 'excel_extraction'
+        }
+      });
+
+    } catch (uploadError) {
+      console.error('Error subiendo archivo al bucket:', uploadError);
+      // Continuar sin fallar la extracción si hay error en el upload
+    }
+
     return res.json({
       success: true,
       message: `Extracción completada: ${createdClients.length} clientes procesados${targetGroup ? `, ${successCount} asignados al grupo "${targetGroup.name}"` : ''}`,
@@ -506,7 +491,17 @@ app.post('/clients/extract-excel', upload.single('file'), async (req, res) => {
           successfullyAssigned: successCount,
           assignmentErrors: assignmentErrors,
           assignmentDetails: assignmentResults
-        } : null
+        } : null,
+        fileStorage: uploadResult ? {
+          uploaded: true,
+          fileName: uploadResult.fileName,
+          bucketUrl: uploadResult.bucketUrl,
+          downloadUrl: uploadResult.downloadUrl,
+          size: uploadResult.size
+        } : {
+          uploaded: false,
+          error: uploadError ? uploadError.message : 'Error desconocido'
+        }
       }
     });
 
@@ -519,6 +514,115 @@ app.post('/clients/extract-excel', upload.single('file'), async (req, res) => {
     });
   }
 });
+
+app.post('/clients/upload-excel', async (req, res) => {
+  const { groupId } = req.body;
+  
+  try {
+    const Group = require('./models/Group');
+    const Client = require('./models/Client');
+    
+    // Validar que el grupo existe si se proporciona
+    let targetGroup = null;
+    if (groupId) {
+      targetGroup = await Group.findById(parseInt(groupId));
+      if (!targetGroup) {
+        return res.status(404).json({
+          success: false,
+          message: 'Grupo no encontrado'
+        });
+      }
+    }
+
+    // Hacer la petición al servicio externo
+    const response = await fetch('https://excel-api-754698887417.us-central1.run.app/clients/upload-excel', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body) // Reenviar el body original (archivo Excel)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return res.status(response.status).json({
+        success: false,
+        message: errorData.message || 'Error en el servicio de carga masiva',
+        detail: errorData
+      });
+    }
+
+    const result = await response.json();
+    
+    // Si la carga fue exitosa y se especificó un grupo, asignar los clientes
+    if (result.success && targetGroup && result.clients && Array.isArray(result.clients)) {
+      const assignmentResults = await Promise.all(
+        result.clients.map(async (clientData) => {
+          try {
+            // Buscar o crear el cliente en la base de datos local
+            let client = await Client.findByExternalId(clientData.external_id || clientData._id);
+            
+            if (!client) {
+              // Crear el cliente si no existe
+              client = await Client.syncFromExternal(clientData);
+            }
+            
+            // Asignar al grupo
+            await targetGroup.addClient(client.id);
+            
+            return {
+              success: true,
+              clientId: client.id,
+              clientName: client.name,
+              action: 'assigned_to_group'
+            };
+          } catch (error) {
+            return {
+              success: false,
+              clientName: clientData.name || 'Cliente desconocido',
+              error: error.message
+            };
+          }
+        })
+      );
+
+      const successCount = assignmentResults.filter(r => r.success).length;
+      const errorCount = assignmentResults.filter(r => !r.success).length;
+
+      return res.json({
+        success: true,
+        message: `Carga masiva completada y ${successCount} clientes asignados al grupo "${targetGroup.name}"`,
+        data: {
+          ...result,
+          groupAssignment: {
+            groupId: targetGroup.id,
+            groupName: targetGroup.name,
+            totalClients: result.clients.length,
+            successfullyAssigned: successCount,
+            assignmentErrors: errorCount,
+            assignmentDetails: assignmentResults
+          }
+        }
+      });
+    }
+
+    // Si no se especificó grupo, solo devolver el resultado original
+    return res.json({
+      success: true,
+      message: 'Carga masiva completada (sin asignación a grupo)',
+      data: result
+    });
+
+  } catch (error) {
+    console.error('Error en carga masiva:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error en el proxy de carga masiva',
+      detail: error.message
+    });
+  }
+});
+
 
 // Rutas principales
 app.use('/api', indexRoutes);

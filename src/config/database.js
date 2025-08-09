@@ -80,16 +80,6 @@ const query = async (text, params) => {
   const start = Date.now();
   try {
     const result = await pool.query(text, params);
-    const duration = Date.now() - start;
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log('📝 Query ejecutada:', { 
-        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-        duration: `${duration}ms`, 
-        rows: result.rowCount 
-      });
-    }
-    
     return result;
   } catch (error) {
     const duration = Date.now() - start;

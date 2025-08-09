@@ -14,6 +14,9 @@ const userRoutes = require('./users');
 const groupRoutes = require('./groups');
 const clientRoutes = require('./clients');
 
+// Importar rutas de almacenamiento
+const storageRoutes = require('./storage');
+
 // Importar middleware
 const { authenticate } = require('../middleware/auth');
 
@@ -26,6 +29,9 @@ router.use('/users', userRoutes);
 // Rutas de grupos y clientes
 router.use('/groups', groupRoutes);
 router.use('/clients', clientRoutes);
+
+// Rutas de almacenamiento
+router.use('/storage', storageRoutes);
 
 // Rutas públicas
 router.get('/status', getStatus);
