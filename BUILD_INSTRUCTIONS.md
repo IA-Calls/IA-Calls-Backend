@@ -1,25 +1,41 @@
 # 🚀 Instrucciones de Build - IA-Calls Backend
 
-## ✅ **Comandos de Build que FUNCIONAN:**
+## ✅ **Comandos de Build Disponibles:**
 
-### 🔨 **Build Principal (Recomendado)**
+### 🔨 **Build Principal (Con carpeta dist)**
 ```bash
 npm run build
 ```
 - ✅ **FUNCIONA PERFECTAMENTE**
-- Ejecuta el script de build completo
-- Incluye limpieza automática y creación de build de producción
-- Genera archivos en el directorio `dist/`
-- **Este es el comando principal que debes usar**
+- Crea carpeta `dist/` con archivos optimizados
+- Ideal para despliegue en servidores
 
-### 🚀 **Build Simple (Alternativa)**
+### 🏠 **Build Normal (Sin carpeta dist)**
+```bash
+npm run build:normal
+```
+- ✅ **NUEVO - OPTIMIZA EL DIRECTORIO ACTUAL**
+- No crea carpeta `dist/`
+- Optimiza archivos en el directorio actual
+- Crea configuración de producción
+- **Este es el comando que pediste**
+
+### 🚀 **Build Simple (Alternativa rápida)**
 ```bash
 npm run build:simple
 ```
 - ✅ **FUNCIONA PERFECTAMENTE**
-- Build más rápido y directo
+- Build rápido con carpeta `dist/`
 - Sin validaciones complejas
-- Ideal para builds rápidos durante desarrollo
+
+### 🔄 **Restaurar Desarrollo**
+```bash
+npm run restore:dev
+```
+- ✅ **RESTAURA CONFIGURACIÓN DE DESARROLLO**
+- Después de usar `build:normal`
+- Restaura `package.json` original
+- Elimina archivos de producción
 
 ### 🧹 **Limpieza Manual**
 ```bash
@@ -27,56 +43,65 @@ npm run clean
 ```
 - ✅ **FUNCIONA PERFECTAMENTE**
 - Elimina directorios `dist/` y `build/`
-- Útil antes de hacer un nuevo build
 
-## 📁 **Estructura del Build Generado:**
+## 📁 **Qué hace cada build:**
 
-Después de ejecutar `npm run build`, se creará:
-
+### **`npm run build` (Con dist):**
 ```
 dist/
-├── server.js          # Servidor principal
-├── start.js           # Script de inicio optimizado
-├── package.json       # Dependencias optimizadas para producción
-├── src/               # Código fuente completo
-└── .env               # Variables de entorno (si existe)
+├── server.js
+├── start.js
+├── package.json (optimizado)
+├── src/
+└── .env
 ```
 
-## 🚀 **Cómo Usar (Paso a Paso):**
-
-### **1. Generar Build:**
-```bash
-npm run build
+### **`npm run build:normal` (Sin dist):**
+```
+📁 Directorio actual optimizado:
+├── package.json (optimizado para producción)
+├── start.js (script de inicio optimizado)
+├── .env.production (configuración de producción)
+├── ecosystem.config.js (configuración PM2)
+├── DEPLOYMENT.md (instrucciones)
+└── logs/ (directorio para logs)
 ```
 
-### **2. Verificar que se creó el directorio dist:**
+## 🚀 **Flujo de Trabajo Recomendado:**
+
+### **Para Desarrollo:**
 ```bash
-dir dist
+npm run dev
 ```
 
-### **3. Navegar al directorio de build:**
+### **Para Producción (Sin carpeta dist):**
 ```bash
-cd dist
-```
-
-### **4. Instalar dependencias de producción:**
-```bash
-npm install --production
-```
-
-### **5. Iniciar servidor:**
-```bash
+npm run build:normal
 npm start
 ```
 
-## 🔧 **Comandos Adicionales Disponibles:**
+### **Para Producción (Con carpeta dist):**
+```bash
+npm run build
+cd dist
+npm install --production
+npm start
+```
+
+### **Para volver a Desarrollo:**
+```bash
+npm run restore:dev
+npm run dev
+```
+
+## 🔧 **Comandos Adicionales:**
 
 ### **Desarrollo:**
 ```bash
 npm run dev          # Inicia servidor con nodemon
 ```
 
-### **Validación de Código:**
+### **Validación:**
 ```bash
 npm run lint         # Valida código con ESLint
 npm run lint:fix     # Corrige errores automáticamente
@@ -89,41 +114,57 @@ npm run test:watch   # Tests en modo watch
 npm run test:coverage # Tests con reporte de cobertura
 ```
 
+## 🎯 **Build Normal - Características:**
+
+### **Archivos que crea:**
+- **`.env.production`** - Variables de entorno para producción
+- **`start.js`** - Script de inicio optimizado
+- **`ecosystem.config.js`** - Configuración para PM2
+- **`DEPLOYMENT.md`** - Instrucciones de despliegue
+- **`logs/`** - Directorio para logs
+- **`package.json`** - Optimizado para producción
+
+### **Opciones de ejecución:**
+```bash
+# Opción 1: Simple
+npm start
+
+# Opción 2: Con PM2 (Recomendado)
+pm2 start ecosystem.config.js --env production
+
+# Opción 3: Con variables de entorno
+NODE_ENV=production npm start
+```
+
 ## 🚨 **Solución de Problemas:**
 
 ### **Si el build falla:**
-1. **Limpiar y reintentar:**
-   ```bash
-   npm run clean
-   npm run build
-   ```
+```bash
+npm run clean
+npm run build:normal
+```
 
-2. **Usar build simple como alternativa:**
-   ```bash
-   npm run build:simple
-   ```
+### **Para volver a desarrollo:**
+```bash
+npm run restore:dev
+```
 
 ### **Si hay problemas con dependencias:**
 ```bash
 npm install
-npm run build
+npm run build:normal
 ```
 
 ## 📝 **Notas Importantes:**
 
-- ✅ **`npm run build`** es el comando principal y funciona perfectamente
-- ✅ **`npm run build:simple`** es una alternativa rápida y confiable
-- ✅ **`npm run clean`** limpia directorios antes del build
-- 🎯 **El directorio `dist/` contiene todo lo necesario para producción**
-- 🚀 **Los archivos están optimizados y listos para despliegue**
+- ✅ **`npm run build:normal`** optimiza el directorio actual (sin crear dist)
+- ✅ **`npm run restore:dev`** restaura la configuración de desarrollo
+- 🎯 **El build normal es ideal para despliegue directo**
+- 🚀 **Los archivos están optimizados y listos para producción**
 
-## 🔄 **Flujo de Trabajo Recomendado:**
+## 🎉 **¡Tu sistema de build está completo!**
 
-1. **Desarrollo**: `npm run dev`
-2. **Build**: `npm run build`
-3. **Verificación**: `dir dist`
-4. **Despliegue**: Copiar directorio `dist/` al servidor
-
-## 🎉 **¡Tu sistema de build está funcionando perfectamente!**
-
-Usa `npm run build` como tu comando principal de build.
+- **Para desarrollo:** `npm run dev`
+- **Para producción (sin dist):** `npm run build:normal`
+- **Para producción (con dist):** `npm run build`
+- **Para restaurar desarrollo:** `npm run restore:dev`
