@@ -25,23 +25,7 @@ app.use(cors({
       // Agregar más URLs aquí si es necesario
       ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
     ];
-    
-    // Permitir requests sin origin (como aplicaciones móviles o Postman)
-    if (!origin) {
-      console.log('✅ CORS: Request sin origin permitido');
-      return callback(null, true);
-    }
-    
-    // Verificar si el origin está en la lista de permitidos
-    if (allowedOrigins.includes(origin)) {
-      console.log(`✅ CORS: Origin permitido: ${origin}`);
-      return callback(null, true);
-    }
-    
-    // Log para debugging
-    console.log(`🚫 CORS bloqueado para origin: ${origin}`);
-    console.log(`✅ Orígenes permitidos: ${allowedOrigins.join(', ')}`);
-    return callback(new Error('No permitido por CORS'));
+    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
