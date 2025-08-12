@@ -15,6 +15,11 @@ router.delete('/:id', groupsController.deleteGroup);
 
 // Rutas para manejo de clientes en grupos
 router.post('/:id/clients', groupsController.addClientToGroup);
+router.get('/:id/clients/:client_id', groupsController.getClientInGroup);
+router.put('/:id/clients/:client_id', groupsController.updateClientInGroup);
 router.delete('/:id/clients/:client_id', groupsController.removeClientFromGroup);
+
+// Ruta para descargar archivos procesados
+router.get('/download/:fileName', groupsController.downloadProcessedFile);
 
 module.exports = router; 

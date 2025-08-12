@@ -1,5 +1,6 @@
 const Group = require('../models/Group');
 const Client = require('../models/Client');
+const FileProcessor = require('../services/fileProcessor');
 
 // Obtener todos los grupos
 const getGroups = async (req, res) => {
@@ -96,7 +97,7 @@ const getGroupById = async (req, res) => {
 // Crear nuevo grupo
 const createGroup = async (req, res) => {
   try {
-    const { name, description, prompt, color, favorite } = req.body;
+    const { name, description, prompt, color, favorite, base64, document_name } = req.body;
     const createdBy = req.user?.id || 1; // Usar ID del usuario autenticado o admin por defecto
 
     if (!name) {
@@ -115,13 +116,71 @@ const createGroup = async (req, res) => {
       createdBy
     };
 
+    // Crear el grupo
     const group = await Group.create(groupData);
+    const groupId = group.id;
 
-    res.status(201).json({
+    let processingResult = null;
+    let createdClients = [];
+
+    // Procesar archivo si se proporciona base64 y document_name
+    if (base64 && document_name) {
+      try {
+        console.log('Procesando archivo adjunto...');
+        
+        // Procesar el archivo y extraer datos
+        processingResult = await FileProcessor.processFile(base64, document_name);
+        
+        if (processingResult.success && processingResult.clientsData.length > 0) {
+          console.log(`Procesados ${processingResult.clientsData.length} clientes del archivo`);
+          
+          // Crear todos los clientes en carga masiva (sin verificar duplicados)
+          const newClients = await Client.createBatch(processingResult.clientsData, 100);
+          
+          if (newClients.length > 0) {
+            // Extraer IDs de los clientes creados
+            const clientIds = newClients.map(client => client.id);
+            
+            // Asignar todos los clientes al grupo en carga masiva
+            const assignedCount = await group.addClientsBatch(clientIds, createdBy, 100);
+            
+            console.log(`Asignados ${assignedCount} clientes al grupo ${groupId}`);
+            
+            // Agregar clientes creados a la respuesta
+            createdClients = newClients.map(client => client.toJSON());
+          }
+        }
+        
+      } catch (fileError) {
+        console.error('Error procesando archivo:', fileError);
+        // Continuar con la creación del grupo aunque falle el procesamiento del archivo
+      }
+    }
+
+    // Preparar respuesta
+    const response = {
       success: true,
       message: 'Grupo creado exitosamente',
-      data: group.toJSON()
-    });
+      data: {
+        ...group.toJSON(),
+        fileProcessing: processingResult ? {
+          processed: true,
+          totalClientsFound: processingResult.clientsData.length,
+          clientsCreated: createdClients.length,
+          processedFile: processingResult.processedFile
+        } : {
+          processed: false
+        }
+      }
+    };
+
+    // Agregar información de clientes creados si hay alguno
+    if (createdClients.length > 0) {
+      response.data.createdClients = createdClients;
+    }
+
+    res.status(201).json(response);
+    
   } catch (error) {
     console.error('Error creando grupo:', error);
     res.status(500).json({
@@ -275,6 +334,137 @@ const removeClientFromGroup = async (req, res) => {
   }
 };
 
+// Actualizar cliente en el grupo
+const updateClientInGroup = async (req, res) => {
+  try {
+    const { id, client_id } = req.params;
+    const updateData = req.body;
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Verificar que el cliente esté en el grupo
+    const clientInGroup = await group.getClients({ limit: 1000 });
+    const clientExists = clientInGroup.find(client => client.id === parseInt(client_id));
+    
+    if (!clientExists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no está en el grupo'
+      });
+    }
+
+    // Actualizar el cliente
+    const client = await Client.findById(client_id);
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no encontrado'
+      });
+    }
+
+    await client.update(updateData);
+
+    res.json({
+      success: true,
+      message: 'Cliente actualizado exitosamente',
+      data: client.toJSON()
+    });
+  } catch (error) {
+    console.error('Error actualizando cliente en el grupo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error actualizando cliente en el grupo',
+      error: error.message
+    });
+  }
+};
+
+// Obtener cliente específico del grupo
+const getClientInGroup = async (req, res) => {
+  try {
+    const { id, client_id } = req.params;
+
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Obtener todos los clientes del grupo
+    const clients = await group.getClients({ limit: 1000 });
+    const client = clients.find(c => c.id === parseInt(client_id));
+    
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no está en el grupo'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: client
+    });
+  } catch (error) {
+    console.error('Error obteniendo cliente del grupo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo cliente del grupo',
+      error: error.message
+    });
+  }
+};
+
+// Descargar archivo procesado
+const downloadProcessedFile = async (req, res) => {
+  try {
+    const { fileName } = req.params;
+    
+    if (!fileName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nombre del archivo es requerido'
+      });
+    }
+
+    const path = require('path');
+    const fs = require('fs');
+    
+    const filePath = path.join(__dirname, '../../uploads', fileName);
+    
+    // Verificar si el archivo existe
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Archivo no encontrado'
+      });
+    }
+
+    // Configurar headers para descarga
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    
+    // Enviar archivo
+    res.sendFile(filePath);
+    
+  } catch (error) {
+    console.error('Error descargando archivo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error descargando archivo',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getGroups,
   getGroupById,
@@ -282,5 +472,8 @@ module.exports = {
   updateGroup,
   deleteGroup,
   addClientToGroup,
-  removeClientFromGroup
+  removeClientFromGroup,
+  updateClientInGroup,
+  getClientInGroup,
+  downloadProcessedFile
 }; 

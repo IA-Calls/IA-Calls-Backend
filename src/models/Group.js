@@ -168,6 +168,66 @@ class Group {
     }
   }
 
+  // Agregar múltiples clientes al grupo en lotes
+  async addClientsBatch(clientIds, assignedBy, batchSize = 100) {
+    try {
+      const totalClients = clientIds.length;
+      let assignedCount = 0;
+      
+      console.log(`Iniciando asignación masiva de ${totalClients} clientes al grupo ${this.id}`);
+      
+      // Procesar en lotes
+      for (let i = 0; i < totalClients; i += batchSize) {
+        const batch = clientIds.slice(i, i + batchSize);
+        console.log(`Asignando lote ${Math.floor(i / batchSize) + 1}/${Math.ceil(totalClients / batchSize)} (${batch.length} clientes)`);
+        
+        const batchResults = await this.addClientsBatchChunk(batch, assignedBy);
+        assignedCount += batchResults;
+      }
+      
+      console.log(`Asignación masiva completada: ${assignedCount} clientes asignados al grupo ${this.id}`);
+      return assignedCount;
+      
+    } catch (error) {
+      console.error('Error en asignación masiva:', error);
+      throw new Error(`Error en asignación masiva: ${error.message}`);
+    }
+  }
+
+  // Agregar un lote específico de clientes al grupo
+  async addClientsBatchChunk(clientIds, assignedBy) {
+    try {
+      if (clientIds.length === 0) return 0;
+      
+      // Construir query dinámico para múltiples inserciones
+      const values = [];
+      const placeholders = [];
+      let paramCount = 1;
+      
+      for (const clientId of clientIds) {
+        placeholders.push(`($${paramCount}, $${paramCount + 1}, $${paramCount + 2}, NOW())`);
+        values.push(clientId, this.id, assignedBy);
+        paramCount += 3;
+      }
+      
+      const queryText = `
+        INSERT INTO "public"."client_groups" (client_id, group_id, assigned_by, assigned_at)
+        VALUES ${placeholders.join(', ')}
+        ON CONFLICT (client_id, group_id) DO NOTHING
+        RETURNING *
+      `;
+      
+      const result = await query(queryText, values);
+      
+      return result.rows.length;
+      
+    } catch (error) {
+      console.error('Error asignando lote de clientes:', error);
+      // Continuar con el siguiente lote aunque falle este
+      return 0;
+    }
+  }
+
   // Remover cliente del grupo
   async removeClient(clientId) {
     try {

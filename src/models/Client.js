@@ -35,10 +35,85 @@ class Client {
       
       return new Client(result.rows[0]);
     } catch (error) {
-      if (error.code === '23505') {
-        throw new Error('Ya existe un cliente con este teléfono');
-      }
       throw new Error(`Error creando cliente: ${error.message}`);
+    }
+  }
+
+  // Crear múltiples clientes en lotes (carga masiva)
+  static async createBatch(clientsData, batchSize = 100) {
+    try {
+      const createdClients = [];
+      const totalClients = clientsData.length;
+      
+      console.log(`Iniciando carga masiva de ${totalClients} clientes en lotes de ${batchSize}`);
+      
+      // Procesar en lotes
+      for (let i = 0; i < totalClients; i += batchSize) {
+        const batch = clientsData.slice(i, i + batchSize);
+        console.log(`Procesando lote ${Math.floor(i / batchSize) + 1}/${Math.ceil(totalClients / batchSize)} (${batch.length} clientes)`);
+        
+        const batchResults = await this.createBatchChunk(batch);
+        createdClients.push(...batchResults);
+      }
+      
+      console.log(`Carga masiva completada: ${createdClients.length} clientes creados`);
+      return createdClients;
+      
+    } catch (error) {
+      console.error('Error en carga masiva:', error);
+      throw new Error(`Error en carga masiva: ${error.message}`);
+    }
+  }
+
+  // Crear un lote específico de clientes
+  static async createBatchChunk(clientsData) {
+    try {
+      if (clientsData.length === 0) return [];
+      
+      // Construir query dinámico para múltiples inserciones
+      const values = [];
+      const placeholders = [];
+      let paramCount = 1;
+      
+      for (const clientData of clientsData) {
+        const { 
+          externalId, name, phone, email, address, category, 
+          review, status = 'pending', metadata 
+        } = clientData;
+        
+        placeholders.push(`($${paramCount}, $${paramCount + 1}, $${paramCount + 2}, $${paramCount + 3}, $${paramCount + 4}, $${paramCount + 5}, $${paramCount + 6}, $${paramCount + 7}, $${paramCount + 8}, $${paramCount + 9}, NOW(), NOW())`);
+        
+        values.push(
+          externalId, 
+          name, 
+          phone, 
+          email, 
+          address, 
+          category, 
+          review, 
+          status, 
+          JSON.stringify(metadata), 
+          true
+        );
+        
+        paramCount += 10;
+      }
+      
+      const queryText = `
+        INSERT INTO "public"."clients" 
+        (external_id, name, phone, email, address, category, review, status, metadata, is_active, created_at, updated_at)
+        VALUES ${placeholders.join(', ')}
+        RETURNING *
+      `;
+      
+      const result = await query(queryText, values);
+      
+      return result.rows.map(row => new Client(row));
+      
+    } catch (error) {
+      console.error('Error creando lote de clientes:', error);
+      // Continuar con el siguiente lote aunque falle este
+      return [];
     }
   }
 
