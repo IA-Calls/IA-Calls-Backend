@@ -222,7 +222,7 @@ const generateAndUploadExcel = async (clientsData, groupName, groupId) => {
     
     // Generar nombre del archivo
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `clientes_${groupName.replace(/[^a-zA-Z0-9]/g, '_')}_${timestamp}.xlsx`;
+    const fileName = `clientes_procesados_${timestamp}.xlsx`;
     
     // Subir a GCP
     const uploadResult = await uploadDocumentToGCP(base64Data, fileName, {

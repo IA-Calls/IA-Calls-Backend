@@ -297,9 +297,77 @@ class GCPDocument {
     }
   }
 
+  // Obtener documentos por cliente con información de grupos
+  static async findByClientIdWithGroups(clientId, options = {}) {
+    const query = `
+      SELECT 
+        gd.*,
+        g.name as group_name,
+        g.description as group_description,
+        g.color as group_color,
+        g.is_active as group_is_active,
+        g.created_by as group_created_by,
+        g.created_at as group_created_at,
+        g.updated_at as group_updated_at,
+        g.prompt as group_prompt,
+        g.favorite as group_favorite
+      FROM gcp_documents gd
+      LEFT JOIN groups g ON gd.group_id = g.id
+      WHERE gd.uploaded_by = $1
+      ${options.documentType ? 'AND gd.document_type = $2' : ''}
+      ORDER BY gd.created_at DESC
+      ${options.limit ? `LIMIT ${options.limit}` : ''}
+      ${options.offset ? `OFFSET ${options.offset}` : ''}
+    `;
+
+    const values = [clientId];
+    if (options.documentType) {
+      values.push(options.documentType);
+    }
+
+    try {
+      const result = await db.query(query, values);
+      return result.rows.map(row => {
+        const document = new GCPDocument(row);
+        // Agregar información del grupo si existe
+        if (row.group_id) {
+          document.groupInfo = {
+            id: row.group_id,
+            name: row.group_name,
+            description: row.group_description,
+            color: row.group_color,
+            isActive: row.group_is_active,
+            createdBy: row.group_created_by,
+            createdAt: row.group_created_at,
+            updatedAt: row.group_updated_at,
+            prompt: row.group_prompt,
+            favorite: row.group_favorite
+          };
+        }
+        return document;
+      });
+    } catch (error) {
+      console.error('Error obteniendo documentos del cliente con grupos:', error);
+      throw error;
+    }
+  }
+
+  // Contar documentos por cliente
+  static async countByClientId(clientId) {
+    const query = 'SELECT COUNT(*) FROM gcp_documents WHERE uploaded_by = $1';
+    
+    try {
+      const result = await db.query(query, [clientId]);
+      return parseInt(result.rows[0].count);
+    } catch (error) {
+      console.error('Error contando documentos del cliente:', error);
+      throw error;
+    }
+  }
+
   // Convertir a JSON
   toJSON() {
-    return {
+    const json = {
       id: this.id,
       fileName: this.fileName,
       originalName: this.originalName,
@@ -315,6 +383,13 @@ class GCPDocument {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };
+
+    // Agregar información del grupo si existe
+    if (this.groupInfo) {
+      json.groupInfo = this.groupInfo;
+    }
+
+    return json;
   }
 }
 

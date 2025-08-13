@@ -872,6 +872,59 @@ app.put('/test-user-update/:id', async (req, res) => {
 
 
 
+// Endpoint específico para documentos por cliente
+app.get('/documents/:clientId', async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { page = 1, limit = 10, documentType } = req.query;
+    
+    const offset = (page - 1) * limit;
+    const options = {
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    };
+
+    if (documentType) options.documentType = documentType;
+
+    // Importar el modelo GCPDocument
+    const GCPDocument = require('./models/GCPDocument');
+
+    // Obtener documentos del cliente con información de grupos
+    const [documents, total] = await Promise.all([
+      GCPDocument.findByClientIdWithGroups(parseInt(clientId), options),
+      GCPDocument.countByClientId(parseInt(clientId))
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      success: true,
+      message: 'Documentos del cliente encontrados',
+      data: documents.map(doc => doc.toJSON()),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      filters: {
+        clientId: parseInt(clientId),
+        documentType: documentType || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Error obteniendo documentos del cliente:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo documentos del cliente',
+      error: error.message
+    });
+  }
+});
+
 // Rutas no encontradas
 app.use('*', (req, res) => {
   res.status(404).json({

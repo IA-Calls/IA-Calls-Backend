@@ -13,7 +13,7 @@ Esta funcionalidad permite procesar archivos Excel en formato Base64 al crear gr
   "prompt": "string",         // Opcional - Prompt para el grupo
   "color": "string",          // Opcional - Color en formato hex (#3B82F6)
   "favorite": true,           // Opcional - Si el grupo es favorito
-  "createdByClient": "string", // Opcional - ID del cliente que crea el grupo
+  "clientId": "number",       // Requerido - ID del cliente que crea el grupo
   "base64": "string",         // Opcional - Archivo en base64
   "document_name": "string"   // Opcional - Nombre del documento original
 }
@@ -54,6 +54,7 @@ Content-Type: application/json
 {
   "name": "Clientes Importados",
   "description": "Clientes importados desde Excel",
+  "clientId": 123,
   "base64": "UEsDBBQAAAAIAA...", // Archivo en base64
   "document_name": "clientes.xlsx"
 }

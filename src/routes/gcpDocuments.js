@@ -15,6 +15,9 @@ router.get('/my-documents', gcpDocumentsController.getMyDocuments);
 // Obtener documentos por grupo
 router.get('/group/:groupId', gcpDocumentsController.getDocumentsByGroup);
 
+// Obtener documentos por cliente
+router.get('/client/:clientId', gcpDocumentsController.getDocumentsByClient);
+
 // Obtener documento por ID
 router.get('/:id', gcpDocumentsController.getDocumentById);
 
