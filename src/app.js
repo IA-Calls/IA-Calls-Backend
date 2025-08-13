@@ -63,18 +63,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Servir archivos estáticos
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
-// Ruta personalizada mejorada con grupos
-app.get('/clients/pending', async (req, res) => {
+// Función para obtener clientes pendientes sin filtro
+const getPendingClients = async (req, res) => {
   const { page = 1, limit = 5 } = req.query;
   try {
     const Group = require('./models/Group');
     const Client = require('./models/Client');
     
-    // Obtener todos los grupos activos
-    const groups = await Group.findAll();
+    // Obtener el ID del usuario autenticado
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado'
+      });
+    }
+    
+    // Obtener grupos del usuario autenticado
+    const groups = await Group.findAll({ userId: userId });
     
     if (groups.length > 0) {
-      // Para cada grupo, obtener sus clientes pendientes
+      // Para cada grupo del usuario, obtener sus clientes pendientes
       const groupsWithClients = await Promise.all(
         groups.map(async (group) => {
           // Obtener clientes pendientes del grupo
@@ -92,45 +102,23 @@ app.get('/clients/pending', async (req, res) => {
             prompt: group.prompt,
             color: group.color,
             favorite: group.favorite,
+            createdByClient: group.createdByClient, // Incluir el campo created-by
             clientCount: pendingClients.length,
             clients: pendingClients
           };
         })
       );
 
-      // Mostrar TODOS los grupos (no filtrar por clientes pendientes)
-      const allGroups = groupsWithClients;
+      // Mostrar solo los grupos del usuario
+      const userGroups = groupsWithClients;
 
-      // También obtener clientes pendientes que no están en ningún grupo
-      const allPendingClients = await Client.findAll({ status: 'pending' });
-      const clientsInGroups = new Set();
-      
-      allGroups.forEach(group => {
-        group.clients.forEach(client => clientsInGroups.add(client.id));
-      });
-
-      const ungroupedClients = allPendingClients.filter(client => !clientsInGroups.has(client.id));
-
-      // Si hay clientes sin grupo, agregarlos como un grupo especial
-      if (ungroupedClients.length > 0) {
-        allGroups.push({
-          id: null,
-          name: "Sin Grupo",
-          description: "Clientes pendientes sin asignar a grupos",
-          prompt: null,
-          color: "#6B7280",
-          favorite: false,
-          clientCount: ungroupedClients.length,
-          clients: ungroupedClients
-        });
-      }
-
-      const totalPendingClients = allPendingClients.length;
+      // Solo contar clientes de los grupos del usuario
+      const totalPendingClients = userGroups.reduce((total, group) => total + group.clientCount, 0);
 
       return res.json({
         success: true,
-        data: allGroups,
-        totalGroups: allGroups.length,
+        data: userGroups,
+        totalGroups: userGroups.length,
         totalClients: totalPendingClients,
         message: 'Datos locales organizados por grupos',
         source: 'local'
@@ -141,35 +129,133 @@ app.get('/clients/pending', async (req, res) => {
     const response = await fetch(`https://calls-service-754698887417.us-central1.run.app/clients/pending?page=${page}&limit=${limit}`);
     const data = await response.json();
     
-         // Transformar la respuesta externa al formato esperado
-     const transformedData = {
-       success: true,
-       data: [{
-         id: null,
-         name: "Clientes Externos",
-         description: "Clientes obtenidos del servicio externo",
-         prompt: null,
-         color: "#3B82F6",
-         favorite: false,
-         clientCount: data.clients ? data.clients.length : 0,
-         clients: data.clients || []
-       }],
-       totalGroups: 1,
-       totalClients: data.total || 0,
-       message: 'Datos del servicio externo',
-       source: 'external',
-       pagination: {
-         page: parseInt(page),
-         size: parseInt(limit),
-         total: data.total || 0
-       }
-     };
+    // Transformar la respuesta externa al formato esperado
+    const transformedData = {
+      success: true,
+      data: [{
+        id: null,
+        name: "Clientes Externos",
+        description: "Clientes obtenidos del servicio externo",
+        prompt: null,
+        color: "#3B82F6",
+        favorite: false,
+        createdByClient: null, // Campo created-by para datos externos
+        clientCount: data.clients ? data.clients.length : 0,
+        clients: data.clients || []
+      }],
+      totalGroups: 1,
+      totalClients: data.total || 0,
+      message: 'Datos del servicio externo',
+      source: 'external',
+      pagination: {
+        page: parseInt(page),
+        size: parseInt(limit),
+        total: data.total || 0
+      }
+    };
     
     res.json(transformedData);
   } catch (err) {
     res.status(500).json({ error: 'Proxy error', detail: err.message });
   }
-});
+};
+
+// Función para obtener clientes pendientes con filtro de cliente
+const getPendingClientsByClientId = async (req, res) => {
+  const { clientId } = req.params;
+  const { page = 1, limit = 5 } = req.query;
+  try {
+    const Group = require('./models/Group');
+    const Client = require('./models/Client');
+    
+    // Obtener todos los grupos activos
+    const groups = await Group.findAll();
+    
+    if (groups.length > 0) {
+      // Filtrar grupos que fueron creados por el cliente específico
+      const groupsByClient = groups.filter(group => group.createdByClient === clientId);
+      
+      // Para cada grupo del cliente, obtener sus clientes pendientes
+      const groupsWithClients = await Promise.all(
+        groupsByClient.map(async (group) => {
+          // Obtener clientes pendientes del grupo
+          const groupClients = await group.getClients({ 
+            limit: 100 // Obtener todos los clientes del grupo
+          });
+          
+          // Filtrar solo los clientes con status pending
+          const pendingClients = groupClients.filter(client => client.status === 'pending');
+          
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            prompt: group.prompt,
+            color: group.color,
+            favorite: group.favorite,
+            createdByClient: group.createdByClient, // Incluir el campo created-by
+            clientCount: pendingClients.length,
+            clients: pendingClients
+          };
+        })
+      );
+
+      // Solo contar clientes de los grupos del cliente específico
+      const totalPendingClients = groupsWithClients.reduce((total, group) => total + group.clientCount, 0);
+
+      return res.json({
+        success: true,
+        data: groupsWithClients,
+        totalGroups: groupsWithClients.length,
+        totalClients: totalPendingClients,
+        clientId: clientId, // Incluir el ID del cliente en la respuesta
+        message: `Datos locales organizados por grupos para el cliente ${clientId}`,
+        source: 'local'
+      });
+    }
+
+    // Si no hay grupos, usar el servicio externo como fallback
+    const response = await fetch(`https://calls-service-754698887417.us-central1.run.app/clients/pending?page=${page}&limit=${limit}`);
+    const data = await response.json();
+    
+    // Transformar la respuesta externa al formato esperado
+    const transformedData = {
+      success: true,
+      data: [{
+        id: null,
+        name: "Clientes Externos",
+        description: "Clientes obtenidos del servicio externo",
+        prompt: null,
+        color: "#3B82F6",
+        favorite: false,
+        createdByClient: clientId, // Incluir el campo created-by
+        clientCount: data.clients ? data.clients.length : 0,
+        clients: data.clients || []
+      }],
+      totalGroups: 1,
+      totalClients: data.total || 0,
+      clientId: clientId, // Incluir el ID del cliente en la respuesta
+      message: 'Datos del servicio externo',
+      source: 'external',
+      pagination: {
+        page: parseInt(page),
+        size: parseInt(limit),
+        total: data.total || 0
+      }
+    };
+    
+    res.json(transformedData);
+  } catch (err) {
+    res.status(500).json({ error: 'Proxy error', detail: err.message });
+  }
+};
+
+// Middleware de autenticación para rutas de clientes pendientes
+const { authenticate } = require('./middleware/auth');
+
+// Rutas para clientes pendientes - disponibles en ambas ubicaciones
+app.get('/clients/pending', authenticate, getPendingClients);
+app.get('/clients/pending/:clientId', authenticate, getPendingClientsByClientId);
 
 app.post('/calls/outbound', async (req, res) => {
   const { number } = req.body;
@@ -178,35 +264,142 @@ app.post('/calls/outbound', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Número de teléfono requerido' });
   }
 
+  // Validar formato del número
+  const phoneRegex = /^[0-9]{10,15}$/;
+  if (!phoneRegex.test(number)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Formato de número inválido',
+      detail: 'El número debe tener entre 10 y 15 dígitos'
+    });
+  }
+
   try {
-    const response = await fetch('https://369bbe0501eb.ngrok-free.app/outbound-call', {
+    console.log(`[proxy] Iniciando llamada saliente al número: ${number}`);
+    
+    // URL de la API externa (puede ser configurada por variable de entorno)
+    const externalApiUrl = process.env.OUTBOUND_CALL_API_URL || 'https://369bbe0501eb.ngrok-free.app/outbound-call';
+    
+    console.log(`[proxy] Usando API externa: ${externalApiUrl}`);
+    
+    const response = await fetch(externalApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'User-Agent': 'IA-Calls-Backend/1.0.0',
+        'Accept': 'application/json',
         // Si tu API necesita autenticación:
         // Authorization: `Bearer ${process.env.TWILIO_API_KEY}`
       },
-      body: JSON.stringify({ number })
+      body: JSON.stringify({ number }),
+      timeout: 10000 // 10 segundos de timeout
     });
+
+    console.log(`[proxy] Status de respuesta: ${response.status}`);
+    console.log(`[proxy] Headers de respuesta:`, Object.fromEntries(response.headers.entries()));
+
+    // Verificar si la respuesta es JSON
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await response.text();
+      console.error('[proxy] Respuesta no es JSON:', textResponse.substring(0, 200));
+      
+      // Si la API externa no funciona, devolver un mensaje informativo
+      return res.status(503).json({
+        success: false,
+        message: 'Servicio de llamadas temporalmente no disponible',
+        detail: 'La API externa no está respondiendo correctamente',
+        status: response.status,
+        contentType: contentType,
+        suggestion: 'Verificar la configuración de la API externa o contactar al administrador'
+      });
+    }
 
     const result = await response.json();
 
     if (!response.ok) {
+      console.error('[proxy] Error en API externa:', result);
       return res.status(response.status).json({
         success: false,
         message: result.message || 'Error en la API externa',
+        detail: result,
+        status: response.status
       });
     }
 
+    console.log(`[proxy] Llamada exitosa:`, result);
     return res.status(200).json(result);
   } catch (err) {
     console.error('[proxy] Error al hacer llamada saliente:', err);
-    return res.status(500).json({
+    
+    // Determinar el tipo de error
+    let errorMessage = 'Error en el proxy';
+    let errorDetail = err.message;
+    let statusCode = 500;
+    
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      errorMessage = 'Error de conexión con la API externa';
+      errorDetail = 'No se pudo conectar con el servicio de llamadas';
+      statusCode = 503;
+    } else if (err.name === 'AbortError') {
+      errorMessage = 'Timeout en la conexión';
+      errorDetail = 'La API externa tardó demasiado en responder';
+      statusCode = 504;
+    } else if (err.message.includes('Unexpected token')) {
+      errorMessage = 'Respuesta inválida de la API externa';
+      errorDetail = 'La API externa devolvió datos no válidos';
+      statusCode = 502;
+    }
+    
+    return res.status(statusCode).json({
       success: false,
-      message: 'Error en el proxy',
-      detail: err.message,
+      message: errorMessage,
+      detail: errorDetail,
+      errorType: err.name,
+      suggestion: 'Verificar la configuración de la API externa'
     });
   }
+});
+
+// Endpoint alternativo para desarrollo (simula llamadas)
+app.post('/calls/outbound-dev', async (req, res) => {
+  const { number } = req.body;
+
+  if (!number) {
+    return res.status(400).json({ success: false, message: 'Número de teléfono requerido' });
+  }
+
+  // Validar formato del número
+  const phoneRegex = /^[0-9]{10,15}$/;
+  if (!phoneRegex.test(number)) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Formato de número inválido',
+      detail: 'El número debe tener entre 10 y 15 dígitos'
+    });
+  }
+
+  // Simular procesamiento de llamada
+  console.log(`[dev] Simulando llamada al número: ${number}`);
+  
+  // Simular delay de procesamiento
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
+  // Simular respuesta exitosa
+  const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  return res.status(200).json({
+    success: true,
+    message: 'Llamada iniciada exitosamente',
+    data: {
+      callId: callId,
+      number: number,
+      status: 'initiated',
+      timestamp: new Date().toISOString(),
+      estimatedDuration: '30-60 segundos'
+    },
+    note: 'Esta es una simulación para desarrollo. La API externa no está disponible.'
+  });
 });
 
 const upload = multer({
@@ -610,6 +803,11 @@ app.post('/clients/upload-excel', async (req, res) => {
 
 // Rutas principales
 app.use('/api', indexRoutes);
+
+// Agregar las rutas de clientes pendientes también en la API
+// IMPORTANTE: Las rutas específicas deben ir ANTES que las rutas con parámetros
+app.get('/api/clients/pending', authenticate, getPendingClients);
+app.get('/api/clients/pending/:clientId', authenticate, getPendingClientsByClientId);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

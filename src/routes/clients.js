@@ -9,6 +9,7 @@ const clientsController = require('../controllers/clients');
 // Rutas de clientes
 router.get('/', clientsController.getClients);
 router.get('/stats', clientsController.getClientStats);
+router.get('/pending/:clientId', clientsController.getPendingClientsByClientId); // Nueva ruta
 router.get('/:id', clientsController.getClientById);
 router.post('/', clientsController.createClient);
 router.put('/:id', clientsController.updateClient);

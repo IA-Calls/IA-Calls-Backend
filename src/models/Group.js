@@ -10,6 +10,7 @@ class Group {
     this.favorite = groupData.favorite !== undefined ? groupData.favorite : false;
     this.isActive = groupData.is_active !== undefined ? groupData.is_active : true;
     this.createdBy = groupData.created_by;
+    this.createdByClient = groupData['created-by']; // Nuevo campo para el ID del cliente
     this.createdAt = groupData.created_at;
     this.updatedAt = groupData.updated_at;
   }
@@ -17,13 +18,13 @@ class Group {
   // Crear grupo
   static async create(groupData) {
     try {
-      const { name, description, prompt, color = '#3B82F6', favorite = false, createdBy } = groupData;
+      const { name, description, prompt, color = '#3B82F6', favorite = false, createdBy, createdByClient } = groupData;
       
       const result = await query(
-        `INSERT INTO "public"."groups" (name, description, prompt, color, favorite, created_by, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        `INSERT INTO "public"."groups" (name, description, prompt, color, favorite, created_by, "created-by", is_active, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
          RETURNING *`,
-        [name, description, prompt, color, favorite, createdBy, true]
+        [name, description, prompt, color, favorite, createdBy, createdByClient, true]
       );
       
       return new Group(result.rows[0]);
@@ -269,6 +270,7 @@ class Group {
       favorite: this.favorite,
       isActive: this.isActive,
       createdBy: this.createdBy,
+      createdByClient: this.createdByClient, // Nuevo campo
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };

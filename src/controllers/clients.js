@@ -256,6 +256,122 @@ const syncClients = async (req, res) => {
   }
 };
 
+// Obtener clientes pendientes por ID de cliente específico
+const getPendingClientsByClientId = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { page = 1, limit = 5 } = req.query;
+    
+    const Group = require('../models/Group');
+    const Client = require('../models/Client');
+    
+    // Obtener todos los grupos activos que fueron creados por el cliente específico
+    const groups = await Group.findAll();
+    
+    if (groups.length > 0) {
+      // Filtrar grupos que fueron creados por el cliente específico
+      const groupsByClient = groups.filter(group => group.createdByClient === clientId);
+      
+      // Para cada grupo del cliente, obtener sus clientes pendientes
+      const groupsWithClients = await Promise.all(
+        groupsByClient.map(async (group) => {
+          // Obtener clientes pendientes del grupo
+          const groupClients = await group.getClients({ 
+            limit: 100 // Obtener todos los clientes del grupo
+          });
+          
+          // Filtrar solo los clientes con status pending
+          const pendingClients = groupClients.filter(client => client.status === 'pending');
+          
+          return {
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            prompt: group.prompt,
+            color: group.color,
+            favorite: group.favorite,
+            createdByClient: group.createdByClient, // Incluir el campo created-by
+            clientCount: pendingClients.length,
+            clients: pendingClients
+          };
+        })
+      );
+
+      // También obtener clientes pendientes que no están en ningún grupo
+      const allPendingClients = await Client.findAll({ status: 'pending' });
+      const clientsInGroups = new Set();
+      
+      groupsWithClients.forEach(group => {
+        group.clients.forEach(client => clientsInGroups.add(client.id));
+      });
+
+      const ungroupedClients = allPendingClients.filter(client => !clientsInGroups.has(client.id));
+
+      // Si hay clientes sin grupo, agregarlos como un grupo especial
+      if (ungroupedClients.length > 0) {
+        groupsWithClients.push({
+          id: null,
+          name: "Sin Grupo",
+          description: "Clientes pendientes sin asignar a grupos",
+          prompt: null,
+          color: "#6B7280",
+          favorite: false,
+          createdByClient: clientId, // Incluir el campo created-by
+          clientCount: ungroupedClients.length,
+          clients: ungroupedClients
+        });
+      }
+
+      const totalPendingClients = allPendingClients.length;
+
+      return res.json({
+        success: true,
+        data: groupsWithClients,
+        totalGroups: groupsWithClients.length,
+        totalClients: totalPendingClients,
+        clientId: clientId, // Incluir el ID del cliente en la respuesta
+        message: `Datos locales organizados por grupos para el cliente ${clientId}`,
+        source: 'local'
+      });
+    }
+
+    // Si no hay grupos, usar el servicio externo como fallback
+    const response = await fetch(`https://calls-service-754698887417.us-central1.run.app/clients/pending?page=${page}&limit=${limit}`);
+    const data = await response.json();
+    
+    // Transformar la respuesta externa al formato esperado
+    const transformedData = {
+      success: true,
+      data: [{
+        id: null,
+        name: "Clientes Externos",
+        description: "Clientes obtenidos del servicio externo",
+        prompt: null,
+        color: "#3B82F6",
+        favorite: false,
+        createdByClient: clientId, // Incluir el campo created-by
+        clientCount: data.clients ? data.clients.length : 0,
+        clients: data.clients || []
+      }],
+      totalGroups: 1,
+      totalClients: data.total || 0,
+      clientId: clientId, // Incluir el ID del cliente en la respuesta
+      message: 'Datos del servicio externo',
+      source: 'external'
+    };
+
+    res.json(transformedData);
+    
+  } catch (error) {
+    console.error('Error obteniendo clientes pendientes por cliente ID:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo clientes pendientes',
+      error: error.message
+    });
+  }
+};
+
 // Obtener estadísticas de clientes
 const getClientStats = async (req, res) => {
   try {
@@ -290,5 +406,6 @@ module.exports = {
   updateClient,
   deleteClient,
   syncClients,
-  getClientStats
+  getClientStats,
+  getPendingClientsByClientId
 }; 

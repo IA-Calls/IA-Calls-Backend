@@ -17,6 +17,9 @@ const clientRoutes = require('./clients');
 // Importar rutas de almacenamiento
 const storageRoutes = require('./storage');
 
+// Importar rutas de documentos GCP
+const gcpDocumentsRoutes = require('./gcpDocuments');
+
 // Importar middleware
 const { authenticate } = require('../middleware/auth');
 
@@ -32,6 +35,9 @@ router.use('/clients', clientRoutes);
 
 // Rutas de almacenamiento
 router.use('/storage', storageRoutes);
+
+// Rutas de documentos GCP
+router.use('/gcp-documents', gcpDocumentsRoutes);
 
 // Rutas públicas
 router.get('/status', getStatus);

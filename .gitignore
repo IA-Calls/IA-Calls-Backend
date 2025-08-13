@@ -64,4 +64,10 @@ jspm_packages/
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Thumbs.db 
+Thumbs.db
+
+# Google Cloud credentials
+CLAVE_GCP.json
+*.json
+!package.json
+!package-lock.json 

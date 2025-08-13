@@ -5,17 +5,24 @@ const FileProcessor = require('../services/fileProcessor');
 // Obtener todos los grupos
 const getGroups = async (req, res) => {
   try {
-    const { page = 1, limit = 10, include_clients = false } = req.query;
+    const { page = 1, limit = 10, include_clients = false, clientId } = req.query;
     const offset = (page - 1) * limit;
 
-    const groups = await Group.findAll({ 
+    // Obtener todos los grupos
+    const allGroups = await Group.findAll({ 
       limit: parseInt(limit), 
       offset: parseInt(offset) 
     });
 
+    // Filtrar por clientId si se proporciona
+    let filteredGroups = allGroups;
+    if (clientId) {
+      filteredGroups = allGroups.filter(group => group.createdByClient === clientId);
+    }
+
     // Si se solicita incluir clientes, obtenerlos para cada grupo
     const groupsWithDetails = await Promise.all(
-      groups.map(async (group) => {
+      filteredGroups.map(async (group) => {
         const clientCount = await group.countClients();
         const groupData = {
           ...group.toJSON(),
@@ -37,7 +44,12 @@ const getGroups = async (req, res) => {
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
-        total: groups.length
+        total: filteredGroups.length,
+        totalAllGroups: allGroups.length
+      },
+      filters: {
+        clientId: clientId || null,
+        applied: !!clientId
       }
     });
   } catch (error) {
@@ -97,7 +109,7 @@ const getGroupById = async (req, res) => {
 // Crear nuevo grupo
 const createGroup = async (req, res) => {
   try {
-    const { name, description, prompt, color, favorite, base64, document_name } = req.body;
+    const { name, description, prompt, color, favorite, base64, document_name, createdByClient } = req.body;
     const createdBy = req.user?.id || 1; // Usar ID del usuario autenticado o admin por defecto
 
     if (!name) {
@@ -113,7 +125,8 @@ const createGroup = async (req, res) => {
       prompt,
       color,
       favorite: favorite || false,
-      createdBy
+      createdBy,
+      createdByClient // Nuevo campo para el ID del cliente
     };
 
     // Crear el grupo
@@ -122,6 +135,7 @@ const createGroup = async (req, res) => {
 
     let processingResult = null;
     let createdClients = [];
+    let gcpUploadResult = null;
 
     // Procesar archivo si se proporciona base64 y document_name
     if (base64 && document_name) {
@@ -148,6 +162,85 @@ const createGroup = async (req, res) => {
             
             // Agregar clientes creados a la respuesta
             createdClients = newClients.map(client => client.toJSON());
+
+            // Subir archivo original a GCP
+            try {
+              const { uploadDocumentToGCP } = require('../utils/helpers');
+              const GCPDocument = require('../models/GCPDocument');
+              
+              gcpUploadResult = await uploadDocumentToGCP(base64, document_name, {
+                groupId: groupId,
+                groupName: name,
+                totalClients: newClients.length,
+                documentType: 'original_upload',
+                source: 'group_creation',
+                processedClients: newClients.length
+              });
+              
+              // Guardar en base de datos
+              const savedDocument = await GCPDocument.create({
+                fileName: gcpUploadResult.fileName,
+                originalName: gcpUploadResult.originalName,
+                bucketUrl: gcpUploadResult.bucketUrl,
+                publicUrl: gcpUploadResult.publicUrl,
+                downloadUrl: gcpUploadResult.downloadUrl,
+                fileSize: gcpUploadResult.size,
+                contentType: gcpUploadResult.contentType,
+                documentType: 'original_upload',
+                groupId: groupId,
+                uploadedBy: createdBy,
+                metadata: {
+                  groupName: name,
+                  totalClients: newClients.length,
+                  source: 'group_creation',
+                  processedClients: newClients.length
+                }
+              });
+              
+              console.log('Archivo original subido a GCP y guardado en BD exitosamente');
+            } catch (gcpError) {
+              console.error('Error subiendo archivo original a GCP:', gcpError);
+              // Continuar sin fallar si hay error en GCP
+            }
+
+            // Generar y subir Excel procesado a GCP
+            try {
+              const { generateAndUploadExcel } = require('../utils/helpers');
+              const GCPDocument = require('../models/GCPDocument');
+              
+              const excelUploadResult = await generateAndUploadExcel(newClients, name, groupId);
+              
+              // Guardar en base de datos
+              const savedExcelDocument = await GCPDocument.create({
+                fileName: excelUploadResult.fileName,
+                originalName: excelUploadResult.originalName,
+                bucketUrl: excelUploadResult.bucketUrl,
+                publicUrl: excelUploadResult.publicUrl,
+                downloadUrl: excelUploadResult.downloadUrl,
+                fileSize: excelUploadResult.size,
+                contentType: excelUploadResult.contentType,
+                documentType: 'processed_excel',
+                groupId: groupId,
+                uploadedBy: createdBy,
+                metadata: {
+                  groupName: name,
+                  totalClients: newClients.length,
+                  source: 'group_creation',
+                  documentType: 'processed_excel'
+                }
+              });
+              
+              console.log('Excel procesado subido a GCP y guardado en BD exitosamente');
+              
+              // Agregar resultado del Excel procesado
+              if (!gcpUploadResult) {
+                gcpUploadResult = {};
+              }
+              gcpUploadResult.processedExcel = excelUploadResult;
+            } catch (excelError) {
+              console.error('Error generando y subiendo Excel procesado:', excelError);
+              // Continuar sin fallar si hay error en el Excel procesado
+            }
           }
         }
         
@@ -170,6 +263,13 @@ const createGroup = async (req, res) => {
           processedFile: processingResult.processedFile
         } : {
           processed: false
+        },
+        gcpStorage: gcpUploadResult ? {
+          uploaded: true,
+          originalFile: gcpUploadResult,
+          processedExcel: gcpUploadResult.processedExcel || null
+        } : {
+          uploaded: false
         }
       }
     };

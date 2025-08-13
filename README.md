@@ -26,6 +26,7 @@ Esta funcionalidad permite procesar archivos Excel en formato Base64 al crear gr
   "prompt": "string",         // Opcional - Prompt para el grupo
   "color": "string",          // Opcional - Color en formato hex (#3B82F6)
   "favorite": true,           // Opcional - Si el grupo es favorito
+  "createdByClient": "string", // Opcional - ID del cliente que crea el grupo
   "base64": "string",         // Opcional - Archivo en base64
   "document_name": "string"   // Opcional - Nombre del documento original
 }
@@ -79,6 +80,7 @@ Content-Type: application/json
 - **Sin verificación de duplicados**: Se crean todos los clientes del archivo
 - **Teléfonos duplicados permitidos**: Se permiten clientes con el mismo teléfono en diferentes grupos
 - **Archivo generado**: Se crea un archivo Excel con los datos procesados
+- **Almacenamiento en GCP**: Los archivos se suben automáticamente al bucket `gs://ia_calls_documents`
 - **Manejo de errores**: El grupo se crea aunque falle el procesamiento del archivo
 
 ## Instalación
@@ -149,12 +151,16 @@ IA-Calls-Backend/
 ### Clientes
 - `GET /api/clients` - Obtener clientes
 - `GET /api/clients/:id` - Obtener cliente por ID
+- `GET /clients/pending` - Obtener clientes pendientes del usuario autenticado (requiere JWT)
+- `GET /clients/pending/:clientId` - Obtener clientes pendientes por ID de cliente específico (requiere JWT)
+- `GET /api/clients/pending` - Obtener clientes pendientes del usuario autenticado (API, requiere JWT)
+- `GET /api/clients/pending/:clientId` - Obtener clientes pendientes por ID de cliente específico (API, requiere JWT)
 - `POST /api/clients` - Crear cliente
 - `PUT /api/clients/:id` - Actualizar cliente
 - `DELETE /api/clients/:id` - Eliminar cliente
 
 ### Grupos
-- `GET /api/groups` - Obtener grupos
+- `GET /api/groups` - Obtener grupos (acepta filtro `clientId`)
 - `GET /api/groups/:id` - Obtener grupo por ID
 - `POST /api/groups` - Crear grupo (con procesamiento de archivos)
 - `PUT /api/groups/:id` - Actualizar grupo
@@ -167,10 +173,173 @@ IA-Calls-Backend/
 - `PUT /api/groups/:id/clients/:client_id` - Actualizar cliente en el grupo
 - `DELETE /api/groups/:id/clients/:client_id` - Eliminar cliente del grupo
 
+### Llamadas
+- `POST /calls/outbound` - Realizar llamada saliente (requiere API externa)
+- `POST /calls/outbound-dev` - Simular llamada saliente (para desarrollo)
+
 ### Almacenamiento
 - `POST /api/storage/upload` - Subir archivo
 - `GET /api/storage/:filename` - Descargar archivo
 - `DELETE /api/storage/:filename` - Eliminar archivo
+
+### Documentos GCP
+- `GET /api/gcp-documents` - Obtener todos los documentos (con filtros)
+- `GET /api/gcp-documents/my-documents` - Obtener documentos del usuario autenticado
+- `GET /api/gcp-documents/group/:groupId` - Obtener documentos por grupo
+- `GET /api/gcp-documents/:id` - Obtener documento por ID
+- `POST /api/gcp-documents/upload` - Subir documento sin grupo
+- `POST /api/gcp-documents/generate-excel` - Generar y subir Excel procesado
+- `PUT /api/gcp-documents/:id` - Actualizar documento
+- `DELETE /api/gcp-documents/:id` - Eliminar documento
+
+## Almacenamiento en Google Cloud Storage
+
+### ⚠️ Configuración Requerida
+
+**IMPORTANTE**: Si encuentras el error `invalid_grant: Invalid JWT Signature`, necesitas generar nuevas credenciales.
+
+```bash
+# Verificar configuración actual
+node scripts/quick-gcp-setup.js
+
+# Probar conexión después de configurar
+node scripts/test-gcp-connection.js
+```
+
+**Guía completa**: [docs/gcp-setup-guide.md](docs/gcp-setup-guide.md)
+
+### Bucket de Documentos
+El sistema utiliza el bucket `gs://ia_calls_documents` para almacenar automáticamente:
+
+- **Archivos originales**: Los archivos Excel subidos durante la creación de grupos
+- **Archivos procesados**: Excel generados con los datos extraídos y procesados
+- **Metadatos**: Información adicional sobre cada archivo
+
+### Estructura de Archivos
+```
+gs://ia_calls_documents/
+├── group-documents/
+│   ├── 2024/
+│   │   ├── 01/
+│   │   │   ├── 15/
+│   │   │   │   ├── clientes_2024-01-15T10-30-00-000Z_abc123.xlsx (original)
+│   │   │   │   └── clientes_Grupo_Test_2024-01-15T10-30-00-000Z_def456.xlsx (procesado)
+│   │   │   └── ...
+│   │   └── ...
+│   └── ...
+└── ...
+```
+
+### Funciones de Utilidad
+- `uploadDocumentToGCP(base64Data, fileName, metadata)` - Subir documento base64
+- `generateAndUploadExcel(clientsData, groupName, groupId)` - Generar y subir Excel procesado
+
+### Configuración Requerida
+```env
+GOOGLE_APPLICATION_CREDENTIALS=path/to/service-account-key.json
+GOOGLE_CLOUD_PROJECT_ID=your-project-id
+```
+
+## Endpoints de Documentos GCP
+
+### Obtener todos los documentos
+```bash
+GET /api/gcp-documents?page=1&limit=10&groupId=1&documentType=original_upload&uploadedBy=1
+```
+
+### Obtener documentos del usuario autenticado
+```bash
+GET /api/gcp-documents/my-documents?page=1&limit=10&documentType=processed_excel
+Authorization: Bearer <token>
+```
+
+### Obtener documentos por grupo
+```bash
+GET /api/gcp-documents/group/1?page=1&limit=10
+Authorization: Bearer <token>
+```
+
+### Subir documento sin grupo
+```bash
+POST /api/gcp-documents/upload
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "base64": "UEsDBBQAAAAIAA...",
+  "fileName": "documento.xlsx",
+  "documentType": "general",
+  "metadata": {
+    "description": "Documento de prueba",
+    "category": "test"
+  }
+}
+```
+
+### Generar y subir Excel procesado
+```bash
+POST /api/gcp-documents/generate-excel
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "clientsData": [
+    {
+      "name": "Juan Pérez",
+      "phone": "3001234567",
+      "email": "juan@email.com",
+      "status": "pending"
+    }
+  ],
+  "groupName": "Mi Grupo",
+  "groupId": 1
+}
+```
+
+### Respuesta de ejemplo
+```json
+{
+  "success": true,
+  "message": "Documento subido exitosamente",
+  "data": {
+    "id": 1,
+    "fileName": "group-documents/2024/01/15/documento_2024-01-15T10-30-00-000Z_abc123.xlsx",
+    "originalName": "documento.xlsx",
+    "bucketUrl": "gs://ia_calls_documents/group-documents/2024/01/15/documento_2024-01-15T10-30-00-000Z_abc123.xlsx",
+    "publicUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/documento_2024-01-15T10-30-00-000Z_abc123.xlsx",
+    "downloadUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/documento_2024-01-15T10-30-00-000Z_abc123.xlsx?X-Goog-Algorithm=...",
+    "fileSize": 15420,
+    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "documentType": "original_upload",
+    "groupId": 1,
+    "uploadedBy": 1,
+    "metadata": {
+      "description": "Documento de prueba",
+      "category": "test"
+    },
+    "createdAt": "2024-01-15T10:30:00.000Z",
+    "updatedAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+### Configuración de Credenciales de Google Cloud
+
+1. **Crear un proyecto en Google Cloud Console**
+2. **Habilitar Google Cloud Storage API**
+3. **Crear una cuenta de servicio** con permisos de Storage Admin
+4. **Descargar la clave JSON** de la cuenta de servicio
+5. **Configurar las variables de entorno**:
+   ```env
+   GOOGLE_APPLICATION_CREDENTIALS=./CLAVE_GCP.json
+   GOOGLE_CLOUD_PROJECT_ID=tu-proyecto-id
+   ```
+
+### Permisos Requeridos
+La cuenta de servicio debe tener los siguientes roles:
+- `Storage Object Admin` para el bucket `ia_calls_documents`
+- `Storage Object Creator` para crear archivos
+- `Storage Object Viewer` para leer archivos
 
 ## Scripts Disponibles
 
@@ -178,6 +347,9 @@ IA-Calls-Backend/
 ```bash
 # Crear archivo de prueba y generar base64
 node scripts/test-file-processing.js
+
+# Probar endpoints de documentos GCP
+node scripts/test-gcp-endpoints.js
 ```
 
 ### Base de Datos
@@ -185,11 +357,77 @@ node scripts/test-file-processing.js
 # Migrar base de datos
 npm run migrate
 
+# Migrar tabla de documentos GCP
+node scripts/migrate-gcp-documents.js
+
 # Restaurar desarrollo
 npm run restore-dev
 
 # Construir
 npm run build
+```
+
+## Manejo de Llamadas Salientes
+
+### Problema del Endpoint Principal
+El endpoint `POST /calls/outbound` actualmente devuelve error 500 porque la API externa (`https://369bbe0501eb.ngrok-free.app/outbound-call`) no está funcionando correctamente y devuelve HTML en lugar de JSON.
+
+### Soluciones Implementadas
+
+#### 1. Endpoint Principal Mejorado
+- **Validación mejorada** del formato del número de teléfono
+- **Mejor manejo de errores** con códigos de estado específicos
+- **Logs detallados** para diagnóstico
+- **Configuración por variable de entorno** para la URL de la API externa
+
+#### 2. Endpoint de Desarrollo
+- **`POST /calls/outbound-dev`** - Simula llamadas para desarrollo
+- **No requiere API externa** - funciona independientemente
+- **Respuesta realista** con ID de llamada y timestamp
+- **Validación de formato** del número de teléfono
+
+### Uso de los Endpoints
+
+#### Endpoint Principal (cuando la API externa funcione)
+```bash
+POST /calls/outbound
+Content-Type: application/json
+
+{
+  "number": "3006120261"
+}
+```
+
+#### Endpoint de Desarrollo (recomendado para pruebas)
+```bash
+POST /calls/outbound-dev
+Content-Type: application/json
+
+{
+  "number": "3006120261"
+}
+```
+
+**Respuesta del endpoint de desarrollo:**
+```json
+{
+  "success": true,
+  "message": "Llamada iniciada exitosamente",
+  "data": {
+    "callId": "call_1734567890_abc123def",
+    "number": "3006120261",
+    "status": "initiated",
+    "timestamp": "2024-01-15T10:30:00.000Z",
+    "estimatedDuration": "30-60 segundos"
+  },
+  "note": "Esta es una simulación para desarrollo. La API externa no está disponible."
+}
+```
+
+### Configuración de la API Externa
+Para usar el endpoint principal, configura la variable de entorno:
+```env
+OUTBOUND_CALL_API_URL=https://tu-api-externa.com/outbound-call
 ```
 
 ## Configuración

@@ -13,6 +13,7 @@ Esta funcionalidad permite procesar archivos Excel en formato Base64 al crear gr
   "prompt": "string",         // Opcional - Prompt para el grupo
   "color": "string",          // Opcional - Color en formato hex (#3B82F6)
   "favorite": true,           // Opcional - Si el grupo es favorito
+  "createdByClient": "string", // Opcional - ID del cliente que crea el grupo
   "base64": "string",         // Opcional - Archivo en base64
   "document_name": "string"   // Opcional - Nombre del documento original
 }
@@ -69,6 +70,7 @@ Content-Type: application/json
     "id": 1,
     "name": "Mi Grupo",
     "description": "Descripción del grupo",
+    "createdByClient": "CLIENTE_123",
     "fileProcessing": {
       "processed": false
     }
@@ -85,6 +87,7 @@ Content-Type: application/json
     "id": 1,
     "name": "Clientes Importados",
     "description": "Clientes importados desde Excel",
+    "createdByClient": "CLIENTE_123",
     "fileProcessing": {
       "processed": true,
       "totalClientsFound": 50,
@@ -93,6 +96,25 @@ Content-Type: application/json
         "fileName": "clientes_procesados_2024-01-15T10-30-00-000Z.xlsx",
         "filePath": "/path/to/file.xlsx",
         "totalClients": 45
+      }
+    },
+    "gcpStorage": {
+      "uploaded": true,
+      "originalFile": {
+        "fileName": "group-documents/2024/01/15/clientes_2024-01-15T10-30-00-000Z_abc123.xlsx",
+        "bucketUrl": "gs://ia_calls_documents/group-documents/2024/01/15/clientes_2024-01-15T10-30-00-000Z_abc123.xlsx",
+        "publicUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/clientes_2024-01-15T10-30-00-000Z_abc123.xlsx",
+        "downloadUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/clientes_2024-01-15T10-30-00-000Z_abc123.xlsx?X-Goog-Algorithm=...",
+        "size": 15420,
+        "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      },
+      "processedExcel": {
+        "fileName": "group-documents/2024/01/15/clientes_Clientes_Importados_2024-01-15T10-30-00-000Z_def456.xlsx",
+        "bucketUrl": "gs://ia_calls_documents/group-documents/2024/01/15/clientes_Clientes_Importados_2024-01-15T10-30-00-000Z_def456.xlsx",
+        "publicUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/clientes_Clientes_Importados_2024-01-15T10-30-00-000Z_def456.xlsx",
+        "downloadUrl": "https://storage.googleapis.com/ia_calls_documents/group-documents/2024/01/15/clientes_Clientes_Importados_2024-01-15T10-30-00-000Z_def456.xlsx?X-Goog-Algorithm=...",
+        "size": 12850,
+        "documentType": "processed_excel"
       }
     },
     "createdClients": [
@@ -134,8 +156,10 @@ GET /api/groups/download/clientes_procesados_2024-01-15T10-30-00-000Z.xlsx
 
 ### Archivo generado:
 - Se crea un archivo Excel con los datos procesados
-- El archivo se guarda en la carpeta `uploads/`
+- El archivo se guarda en la carpeta `uploads/` (local)
+- **Se sube automáticamente al bucket `gs://ia_calls_documents`** (GCP)
 - El nombre incluye timestamp para evitar conflictos
+- Se genera tanto el archivo original como el archivo procesado
 
 ## Manejo de errores
 
@@ -169,4 +193,144 @@ Content-Type: application/json
 ### Eliminar cliente del grupo
 ```bash
 DELETE /api/groups/:id/clients/:client_id
+```
+
+## Nuevos endpoints con filtrado por usuario
+
+### Seguridad y Filtrado por Usuario
+
+Todos los endpoints de clientes pendientes ahora requieren autenticación JWT y filtran los datos por usuario:
+
+- **`/clients/pending`** y **`/api/clients/pending`**: Solo muestran grupos y clientes del usuario autenticado
+- **`/clients/pending/:clientId`** y **`/api/clients/pending/:clientId`**: Solo muestran grupos creados por el cliente específico
+- **No se incluyen clientes sin grupo** de otros usuarios para mantener la privacidad de datos
+
+### Obtener todos los clientes pendientes del usuario autenticado
+```bash
+GET /clients/pending
+GET /api/clients/pending
+Authorization: Bearer <token>
+```
+
+**Nota:** Este endpoint requiere autenticación JWT y solo muestra los grupos y clientes del usuario autenticado.
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Mi Grupo",
+      "description": "Descripción del grupo",
+      "createdByClient": "CLIENTE_123",
+      "clientCount": 5,
+      "clients": [
+        {
+          "id": 1,
+          "name": "Cliente 1",
+          "phone": "3001234567",
+          "email": "cliente1@email.com",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "totalGroups": 1,
+  "totalClients": 5,
+  "message": "Datos locales organizados por grupos",
+  "source": "local"
+}
+```
+
+### Obtener clientes pendientes por ID de cliente específico
+```bash
+GET /clients/pending/:clientId
+GET /api/clients/pending/:clientId
+Authorization: Bearer <token>
+```
+
+**Nota:** Este endpoint requiere autenticación JWT y solo muestra los grupos creados por el cliente específico. No incluye clientes sin grupo de otros usuarios.
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Mi Grupo",
+      "description": "Descripción del grupo",
+      "createdByClient": "CLIENTE_123",
+      "clientCount": 5,
+      "clients": [
+        {
+          "id": 1,
+          "name": "Cliente 1",
+          "phone": "3001234567",
+          "email": "cliente1@email.com",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "totalGroups": 1,
+  "totalClients": 5,
+  "clientId": "CLIENTE_123",
+  "message": "Datos locales organizados por grupos para el cliente CLIENTE_123",
+  "source": "local"
+}
+```
+
+### Obtener grupos filtrados por ID de cliente
+```bash
+GET /api/groups?clientId=CLIENTE_123
+```
+
+**Parámetros de query:**
+- `clientId` (opcional): Filtrar grupos por ID del cliente que los creó
+- `page` (opcional): Número de página (default: 1)
+- `limit` (opcional): Límite de resultados (default: 10)
+- `include_clients` (opcional): Incluir clientes recientes (true/false)
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Mi Grupo",
+      "description": "Descripción del grupo",
+      "prompt": null,
+      "color": "#3B82F6",
+      "favorite": false,
+      "isActive": true,
+      "createdBy": 1,
+      "createdByClient": "CLIENTE_123",
+      "createdAt": "2024-01-15T10:30:00.000Z",
+      "updatedAt": "2024-01-15T10:30:00.000Z",
+      "clientCount": 5,
+      "recentClients": [
+        {
+          "id": 1,
+          "name": "Cliente 1",
+          "phone": "3001234567",
+          "email": "cliente1@email.com",
+          "status": "pending"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 1,
+    "totalAllGroups": 5
+  },
+  "filters": {
+    "clientId": "CLIENTE_123",
+    "applied": true
+  }
+}
 ```
