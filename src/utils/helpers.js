@@ -245,6 +245,161 @@ const generateAndUploadExcel = async (clientsData, groupName, groupId) => {
   }
 };
 
+// Función para guardar logs de actividad con información del usuario
+const logActivity = async (userId, action, description, req, metadata = {}) => {
+  try {
+    const { query } = require('../config/database');
+    
+    // Verificar si existe la tabla activity_logs
+    const tableExists = await query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'activity_logs'
+      );
+    `);
+
+    if (!tableExists.rows[0].exists) {
+      console.log('⚠️ Tabla activity_logs no existe, saltando log de actividad');
+      return;
+    }
+
+    // Obtener información del usuario si se proporciona userId
+    let userName = 'Usuario no identificado';
+    let userEmail = null;
+    let userRole = null;
+
+    if (userId) {
+      try {
+        const userResult = await query(
+          'SELECT username, email, first_name, last_name, role FROM "public"."users" WHERE id = $1',
+          [userId]
+        );
+
+        if (userResult.rows.length > 0) {
+          const user = userResult.rows[0];
+          userName = user.first_name && user.last_name 
+            ? `${user.first_name} ${user.last_name}` 
+            : user.username;
+          userEmail = user.email;
+          userRole = user.role;
+        }
+      } catch (userError) {
+        console.error('Error obteniendo información del usuario:', userError.message);
+      }
+    }
+
+    // Preparar metadatos completos
+    const completeMetadata = {
+      method: req.method,
+      url: req.originalUrl,
+      timestamp: new Date().toISOString(),
+      userName,
+      userEmail,
+      userRole,
+      ...metadata
+    };
+
+    // Insertar log de actividad
+    await query(
+      `INSERT INTO "public"."activity_logs" (user_id, action, description, ip_address, user_agent, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        userId,
+        action,
+        description,
+        req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown',
+        req.get('User-Agent') || 'unknown',
+        JSON.stringify(completeMetadata)
+      ]
+    );
+
+    console.log(`📝 Log registrado: ${action} - ${description} por ${userName}`);
+
+  } catch (error) {
+    console.error('❌ Error registrando actividad:', error.message);
+    // No lanzar error para no interrumpir el flujo principal
+  }
+};
+
+// Función para obtener logs de actividad de un usuario
+const getUserActivityLogs = async (userId, options = {}) => {
+  try {
+    const { query } = require('../config/database');
+    
+    const { page = 1, limit = 20, action = null } = options;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
+    const offset = (pageNum - 1) * limitNum;
+
+    // Construir query base
+    let whereClause = 'WHERE user_id = $1';
+    let queryParams = [userId];
+    let paramCount = 1;
+
+    // Agregar filtro por acción si se especifica
+    if (action) {
+      paramCount++;
+      whereClause += ` AND action = $${paramCount}`;
+      queryParams.push(action);
+    }
+
+    // Obtener logs
+    const logsResult = await query(
+      `SELECT action, description, ip_address, user_agent, metadata, created_at
+       FROM "public"."activity_logs" 
+       ${whereClause}
+       ORDER BY created_at DESC 
+       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`,
+      [...queryParams, limitNum, offset]
+    );
+
+    // Contar total
+    const countResult = await query(
+      `SELECT COUNT(*) FROM "public"."activity_logs" ${whereClause}`,
+      queryParams
+    );
+
+    const total = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(total / limitNum);
+
+    return {
+      activities: logsResult.rows,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1
+      }
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo logs de actividad:', error);
+    throw new Error(`Error obteniendo logs: ${error.message}`);
+  }
+};
+
+// Función para limpiar logs antiguos
+const cleanOldActivityLogs = async (daysToKeep = 90) => {
+  try {
+    const { query } = require('../config/database');
+    
+    const result = await query(
+      'DELETE FROM "public"."activity_logs" WHERE created_at < NOW() - INTERVAL $1 days RETURNING id',
+      [daysToKeep]
+    );
+
+    console.log(`🧹 Limpiados ${result.rows.length} logs antiguos (más de ${daysToKeep} días)`);
+    return result.rows.length;
+
+  } catch (error) {
+    console.error('Error limpiando logs antiguos:', error);
+    throw new Error(`Error limpiando logs: ${error.message}`);
+  }
+};
+
 module.exports = {
   sendResponse,
   sendError,
@@ -254,5 +409,8 @@ module.exports = {
   formatDate,
   validateRequired,
   uploadDocumentToGCP,
-  generateAndUploadExcel
+  generateAndUploadExcel,
+  logActivity,
+  getUserActivityLogs,
+  cleanOldActivityLogs
 }; 

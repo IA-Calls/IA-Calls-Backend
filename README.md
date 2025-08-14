@@ -11,6 +11,7 @@ Backend para IA Calls - API REST con Node.js y Express
 - **Procesamiento de Archivos Excel** - Importación automática de clientes desde archivos Excel
 - **Almacenamiento en Google Cloud** - Integración con Google Cloud Storage
 - **Base de Datos PostgreSQL** - Persistencia de datos robusta
+- **Sistema de Logging** - Registro completo de actividades de usuarios con metadatos
 
 ## Nueva Funcionalidad: Procesamiento de Archivos Excel
 
@@ -108,6 +109,9 @@ cp .env.example .env
 ```bash
 # Ejecutar scripts de migración
 npm run migrate
+
+# Probar sistema de logging (opcional)
+npm run test:logging
 ```
 
 5. **Iniciar el servidor**
@@ -476,6 +480,8 @@ npm run test:coverage
 - [Documentación de Procesamiento de Archivos](docs/file-processing.md)
 - [Guía de API](docs/api-guide.md)
 - [Configuración de Base de Datos](docs/database-setup.md)
+- [Sistema de Logging](docs/logging-system.md)
+- [API de Grupos](docs/groups-api.md)
 
 ## Contribución
 

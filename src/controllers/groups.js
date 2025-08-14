@@ -110,6 +110,7 @@ const getGroupById = async (req, res) => {
 const createGroup = async (req, res) => {
   try {
     const { name, description, prompt, color, favorite, idioma, variables, base64, document_name, clientId } = req.body;
+    const { logActivity } = require('../utils/helpers');
     
     console.log('📋 Datos recibidos en createGroup:');
     console.log('   - clientId del body:', clientId);
@@ -262,10 +263,28 @@ const createGroup = async (req, res) => {
       response.data.createdClients = createdClients;
     }
 
+    // Registrar log de actividad
+    await logActivity(createdBy, 'create_group', `Grupo "${name}" creado exitosamente`, req, {
+      groupId: group.id,
+      groupName: name,
+      hasFile: !!base64,
+      clientsCreated: createdClients.length,
+      variables: variables
+    });
+
     res.status(201).json(response);
     
   } catch (error) {
     console.error('Error creando grupo:', error);
+    
+    // Registrar log de error
+    if (createdBy) {
+      await logActivity(createdBy, 'create_group_error', `Error creando grupo "${name}"`, req, {
+        error: error.message,
+        groupName: name
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Error creando grupo',
