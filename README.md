@@ -26,6 +26,8 @@ Esta funcionalidad permite procesar archivos Excel en formato Base64 al crear gr
   "prompt": "string",         // Opcional - Prompt para el grupo
   "color": "string",          // Opcional - Color en formato hex (#3B82F6)
   "favorite": true,           // Opcional - Si el grupo es favorito
+  "idioma": "string",         // Opcional - Código de idioma (es, en, fr, etc.) - Default: "es"
+  "variables": {},            // Opcional - Variables dinámicas en formato JSON - Default: {}
   "createdByClient": "string", // Opcional - ID del cliente que crea el grupo
   "base64": "string",         // Opcional - Archivo en base64
   "document_name": "string"   // Opcional - Nombre del documento original

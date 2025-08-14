@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS groups (
     prompt TEXT, -- Campo para prompts personalizados
     color VARCHAR(7) DEFAULT '#3B82F6', -- Color hex para UI
     favorite BOOLEAN DEFAULT false, -- Campo para marcar grupos como favoritos
+    idioma VARCHAR(10) DEFAULT 'es', -- Código de idioma para el grupo
+    variables JSONB DEFAULT '{}', -- Variables dinámicas del grupo en formato JSON
     is_active BOOLEAN DEFAULT true,
     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

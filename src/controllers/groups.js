@@ -109,7 +109,7 @@ const getGroupById = async (req, res) => {
 // Crear nuevo grupo
 const createGroup = async (req, res) => {
   try {
-    const { name, description, prompt, color, favorite, base64, document_name, clientId } = req.body;
+    const { name, description, prompt, color, favorite, idioma, variables, base64, document_name, clientId } = req.body;
     
     console.log('📋 Datos recibidos en createGroup:');
     console.log('   - clientId del body:', clientId);
@@ -141,6 +141,8 @@ const createGroup = async (req, res) => {
       prompt,
       color,
       favorite: favorite || false,
+      idioma: idioma || 'es',
+      variables: variables || {},
       createdBy,
       createdByClient: createdBy // Usar el mismo ID para ambos campos
     };

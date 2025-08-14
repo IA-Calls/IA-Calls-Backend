@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.16.0",
