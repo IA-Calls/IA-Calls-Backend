@@ -10,6 +10,9 @@ router.get('/download/:fileName', groupsController.downloadProcessedFile);
 // Ruta para preparar agente con información del grupo (debe ir antes de /:id para evitar conflictos)
 router.post('/:id/prepare-agent', groupsController.prepareAgent);
 
+// Rutas para batch calling (deben ir antes de /:id para evitar conflictos)
+router.post('/:id/call', groupsController.startBatchCall);
+
 // Rutas de grupos
 router.get('/', groupsController.getGroups);
 router.get('/:id', groupsController.getGroupById);

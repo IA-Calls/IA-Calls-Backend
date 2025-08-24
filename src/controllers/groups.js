@@ -720,6 +720,535 @@ Responde siempre en español y mantén el contexto del grupo "${groupName}" en t
   return customPrompt;
 }
 
+// ===== BATCH CALLING FUNCTIONS =====
+
+// Función auxiliar para enriquecer datos del batch call con transcripciones y audios
+const enrichBatchCallData = async (batchData) => {
+  try {
+    console.log(`🔍 Enriqueciendo datos del batch call...`);
+    
+    const enrichedData = { ...batchData };
+    
+    if (batchData.recipients && batchData.recipients.length > 0) {
+      console.log(`📝 Procesando ${batchData.recipients.length} destinatarios para transcripciones...`);
+      
+      // Procesar cada recipient para obtener transcripciones y audios
+      enrichedData.recipients = await Promise.all(
+        batchData.recipients.map(async (recipient) => {
+          const enrichedRecipient = { ...recipient };
+          
+          // Solo procesar si tiene conversation_id y está completado
+          if (recipient.conversation_id && recipient.status === 'completed') {
+            console.log(`📝 Obteniendo detalles para conversación: ${recipient.conversation_id}`);
+            
+            try {
+              // Obtener detalles de la conversación (transcripción, análisis, metadata)
+              const conversationResult = await elevenlabsService.getConversationDetails(recipient.conversation_id);
+              
+              if (conversationResult.success) {
+                const conversationData = conversationResult.data;
+                
+                // Extraer datos relevantes según la especificación
+                enrichedRecipient.summary = conversationData.analysis?.transcript_summary || null;
+                enrichedRecipient.duration_secs = conversationData.metadata?.call_duration_secs || null;
+                
+                // Extraer transcript simplificado (solo role y message)
+                if (conversationData.transcript && Array.isArray(conversationData.transcript)) {
+                  enrichedRecipient.transcript = conversationData.transcript.map(entry => ({
+                    role: entry.role,
+                    message: entry.message
+                  }));
+                }
+                
+                console.log(`✅ Detalles obtenidos para ${recipient.phone_number}`);
+              } else {
+                console.log(`⚠️ No se pudieron obtener detalles para ${recipient.phone_number}: ${conversationResult.error}`);
+              }
+              
+              // Obtener URL del audio
+              const audioResult = await elevenlabsService.getConversationAudioUrl(recipient.conversation_id);
+              if (audioResult.success) {
+                enrichedRecipient.audio_url = audioResult.data.audio_url;
+                console.log(`🎵 URL de audio generada para ${recipient.phone_number}`);
+              } else {
+                console.log(`⚠️ No se pudo generar URL de audio para ${recipient.phone_number}: ${audioResult.error}`);
+              }
+              
+            } catch (error) {
+              console.error(`❌ Error procesando conversación ${recipient.conversation_id}:`, error);
+            }
+          }
+          
+          return enrichedRecipient;
+        })
+      );
+      
+      console.log(`✅ Procesamiento de transcripciones completado`);
+    }
+    
+    return enrichedData;
+    
+  } catch (error) {
+    console.error('❌ Error enriqueciendo datos del batch call:', error);
+    // En caso de error, retornar los datos originales
+    return batchData;
+  }
+};
+
+// Iniciar llamadas en masa para un grupo
+const startBatchCall = async (req, res) => {
+  try {
+    const { id } = req.params; // ID del grupo
+    const { userId, agentPhoneNumberId, scheduledTimeUnix = null } = req.body;
+
+    console.log(`🔍 === INICIO DEBUG BATCH CALL ===`);
+    console.log(`📋 Request params:`, req.params);
+    console.log(`📋 Request body:`, JSON.stringify(req.body, null, 2));
+    console.log(`📋 Grupo ID: ${id}`);
+    console.log(`📋 User ID: ${userId}`);
+    console.log(`📋 Agent Phone Number ID: ${agentPhoneNumberId}`);
+    console.log(`📋 Scheduled Time: ${scheduledTimeUnix}`);
+
+    if (!userId) {
+      console.error('❌ Error: userId no proporcionado');
+      return res.status(400).json({
+        success: false,
+        message: 'ID de usuario es requerido en el body de la petición'
+      });
+    }
+
+    if (!agentPhoneNumberId) {
+      console.error('❌ Error: agentPhoneNumberId no proporcionado');
+      return res.status(400).json({
+        success: false,
+        message: 'ID del número telefónico del agente es requerido'
+      });
+    }
+
+    // Obtener el grupo
+    console.log(`🔍 Buscando grupo con ID: ${id}`);
+    const group = await Group.findById(id);
+    if (!group) {
+      console.error(`❌ Error: Grupo con ID ${id} no encontrado`);
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+    console.log(`✅ Grupo encontrado: "${group.name}"`);
+
+    // Obtener el usuario para acceder a su agente
+    console.log(`🔍 Buscando usuario con ID: ${userId}`);
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error(`❌ Error: Usuario con ID ${userId} no encontrado`);
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+    
+    if (!user.agentId) {
+      console.error(`❌ Error: Usuario ${user.username} no tiene agente asignado`);
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no tiene un agente asignado'
+      });
+    }
+    console.log(`✅ Usuario encontrado: "${user.username}" con agente: ${user.agentId}`);
+
+    console.log(`📞 Iniciando batch call para el grupo "${group.name}"`);
+    console.log(`🤖 Agente: ${user.agentId}`);
+    console.log(`👤 Usuario: ${user.username}`);
+
+    // Obtener los clientes del grupo
+    console.log(`🔍 Obteniendo clientes del grupo...`);
+    const clients = await group.getClients();
+    console.log(`📊 Clientes obtenidos:`, clients ? clients.length : 0);
+    
+    if (!clients || clients.length === 0) {
+      console.error(`❌ Error: El grupo "${group.name}" no tiene clientes asignados`);
+      return res.status(400).json({
+        success: false,
+        message: 'El grupo no tiene clientes asignados para llamar'
+      });
+    }
+
+    console.log('👥 Clientes encontrados:');
+    console.log(JSON.stringify(clients.slice(0, 3), null, 2));
+
+
+    // Preparar los destinatarios para ElevenLabs
+    const recipients = clients
+      .filter(client => client.phone) // Solo clientes con teléfono
+      .map(client => {
+        // Limpiar y formatear número telefónico
+        let phoneNumber = client.phone.toString().trim();
+        
+        // Remover caracteres no numéricos excepto el +
+        phoneNumber = phoneNumber.replace(/[^\d+]/g, '');
+        
+        // Si no tiene código de país, agregar +57 (Colombia)
+        if (!phoneNumber.startsWith('+')) {
+          // Si empieza con 57, agregar solo el +
+          if (phoneNumber.startsWith('57')) {
+            phoneNumber = '+' + phoneNumber;
+          } else {
+            // Si no tiene código de país, agregar +57
+            phoneNumber = '+57' + phoneNumber;
+          }
+        }
+        
+        console.log(`📱 Número formateado: ${client.phone} → ${phoneNumber}`);
+        
+        return {
+          phone_number: phoneNumber,
+          variables: {
+            name: client.name || 'Cliente',
+            email: client.email || '',
+            company: client.company || '',
+            position: client.position || '',
+            // Agregar variables del grupo si existen
+            ...group.variables || {}
+          }
+        };
+      });
+
+    if (recipients.length === 0) {
+      console.error(`❌ Error: No hay destinatarios válidos con teléfonos`);
+      return res.status(400).json({
+        success: false,
+        message: 'No se encontraron clientes con números telefónicos válidos en el grupo'
+      });
+    }
+
+    console.log(`📱 Destinatarios válidos: ${recipients.length}`);
+    console.log(`📋 Primeros 2 destinatarios:`, recipients.slice(0, 2));
+
+    // Preparar datos del batch call
+    const batchData = {
+      callName: `Llamada ${group.name} - ${new Date().toLocaleDateString('es-ES')}`,
+      agentId: user.agentId,
+      agentPhoneNumberId: agentPhoneNumberId,
+      recipients: recipients,
+      scheduledTimeUnix: scheduledTimeUnix
+    };
+
+    console.log(`🚀 Preparando batch call con datos:`);
+    console.log(`   📞 Nombre: ${batchData.callName}`);
+    console.log(`   🤖 Agente ID: ${batchData.agentId}`);
+    console.log(`   📱 Phone Number ID: ${batchData.agentPhoneNumberId}`);
+    console.log(`   👥 Destinatarios: ${batchData.recipients.length}`);
+    console.log(`   ⏰ Programado: ${batchData.scheduledTimeUnix || 'Inmediato'}`);
+
+    // Iniciar el batch call en ElevenLabs
+    console.log(`🔄 Enviando batch call a ElevenLabs...`);
+    const batchResult = await elevenlabsService.submitBatchCall(batchData);
+
+    if (batchResult.success) {
+      console.log(`✅ Batch call iniciado exitosamente para el grupo "${group.name}"`);
+      
+      res.json({
+        success: true,
+        message: `Llamadas iniciadas exitosamente para el grupo "${group.name}"`,
+        data: {
+          batchId: batchResult.data.batch_id || batchResult.data.id,
+          groupId: group.id,
+          groupName: group.name,
+          agentId: user.agentId,
+          recipientsCount: recipients.length,
+          callName: batchData.callName,
+          batchData: batchResult.data
+        }
+      });
+    } else {
+      console.error(`❌ Error iniciando batch call: ${batchResult.error}`);
+      
+      res.status(400).json({
+        success: false,
+        message: 'Error iniciando las llamadas',
+        error: batchResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ === ERROR EN BATCH CALL ===');
+    console.error('❌ Error completo:', error);
+    console.error('❌ Stack trace:', error.stack);
+    console.error('❌ Mensaje:', error.message);
+    console.error('❌ === FIN ERROR ===');
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Consultar estado de un batch call (versión tradicional)
+const getBatchCallStatus = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    console.log(`📊 Consultando estado del batch call: ${batchId}`);
+
+    const statusResult = await elevenlabsService.getBatchCallStatus(batchId);
+
+    if (statusResult.success) {
+      console.log(`✅ Estado del batch call obtenido, enriqueciendo datos...`);
+      
+      // Enriquecer datos con transcripciones y audios
+      const enrichedData = await enrichBatchCallData(statusResult.data);
+      
+      res.json({
+        success: true,
+        message: 'Estado del batch call obtenido exitosamente',
+        data: enrichedData
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error consultando el estado del batch call',
+        error: statusResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error consultando estado del batch call:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Consultar estado de un batch call con Server-Sent Events (SSE)
+const getBatchCallStatusSSE = async (req, res) => {
+  const { batchId } = req.params;
+  
+  console.log(`📊 Iniciando SSE para batch call: ${batchId}`);
+
+  // Configurar headers para SSE
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+
+  // Función para enviar datos al cliente
+  const sendEvent = (eventType, data) => {
+    res.write(`event: ${eventType}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Enviar evento inicial de conexión
+  sendEvent('connected', {
+    message: 'Conexión SSE establecida',
+    batchId: batchId,
+    timestamp: new Date().toISOString()
+  });
+
+  let intervalId;
+  let lastStatus = null;
+
+  // Función para consultar el estado
+  const checkBatchStatus = async () => {
+    try {
+      console.log(`🔄 Consultando estado SSE para batch: ${batchId}`);
+      
+      const statusResult = await elevenlabsService.getBatchCallStatus(batchId);
+
+      if (statusResult.success) {
+        console.log(`✅ Estado SSE obtenido, enriqueciendo datos...`);
+        
+        // Enriquecer datos con transcripciones y audios
+        const enrichedData = await enrichBatchCallData(statusResult.data);
+        
+        // Solo enviar si hay cambios o es la primera consulta
+        if (!lastStatus || JSON.stringify(enrichedData) !== JSON.stringify(lastStatus)) {
+          console.log(`📡 Enviando actualización SSE enriquecida para batch: ${batchId}`);
+          
+          sendEvent('status-update', {
+            success: true,
+            data: enrichedData,
+            timestamp: new Date().toISOString()
+          });
+
+          lastStatus = enrichedData;
+
+          // Si el batch está completado, cancelado o falló, detener el monitoreo
+          if (['completed', 'cancelled', 'failed'].includes(enrichedData.status)) {
+            console.log(`✅ Batch ${batchId} finalizado con estado: ${enrichedData.status}`);
+            
+            sendEvent('batch-completed', {
+              message: `Batch call ${enrichedData.status}`,
+              finalStatus: enrichedData.status,
+              data: enrichedData,
+              timestamp: new Date().toISOString()
+            });
+
+            // Detener el intervalo después de un breve delay
+            setTimeout(() => {
+              clearInterval(intervalId);
+              res.end();
+            }, 2000);
+          }
+        }
+      } else {
+        console.error(`❌ Error consultando estado SSE: ${statusResult.error}`);
+        
+        sendEvent('error', {
+          success: false,
+          message: 'Error consultando el estado del batch call',
+          error: statusResult.error,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+    } catch (error) {
+      console.error('❌ Error en SSE:', error);
+      
+      sendEvent('error', {
+        success: false,
+        message: 'Error interno del servidor',
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  };
+
+  // Realizar primera consulta inmediatamente
+  await checkBatchStatus();
+
+  // Configurar intervalo para consultas periódicas (cada 3 segundos)
+  intervalId = setInterval(checkBatchStatus, 3000);
+
+  // Manejar desconexión del cliente
+  req.on('close', () => {
+    console.log(`🔌 Cliente desconectado de SSE para batch: ${batchId}`);
+    clearInterval(intervalId);
+    res.end();
+  });
+
+  req.on('aborted', () => {
+    console.log(`❌ Conexión SSE abortada para batch: ${batchId}`);
+    clearInterval(intervalId);
+    res.end();
+  });
+
+  // Timeout de seguridad (30 minutos máximo)
+  setTimeout(() => {
+    console.log(`⏰ Timeout SSE para batch: ${batchId}`);
+    sendEvent('timeout', {
+      message: 'Conexión SSE cerrada por timeout',
+      timestamp: new Date().toISOString()
+    });
+    clearInterval(intervalId);
+    res.end();
+  }, 30 * 60 * 1000); // 30 minutos
+};
+
+// Listar todos los batch calls
+const listBatchCalls = async (req, res) => {
+  try {
+    console.log('📋 Listando batch calls...');
+
+    const listResult = await elevenlabsService.listBatchCalls();
+
+    if (listResult.success) {
+      res.json({
+        success: true,
+        message: 'Lista de batch calls obtenida exitosamente',
+        data: listResult.data
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error listando batch calls',
+        error: listResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error listando batch calls:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Reintentar batch call
+const retryBatchCall = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    console.log(`🔄 Reintentando batch call: ${batchId}`);
+
+    const retryResult = await elevenlabsService.retryBatchCall(batchId);
+
+    if (retryResult.success) {
+      res.json({
+        success: true,
+        message: 'Batch call reintentado exitosamente',
+        data: retryResult.data
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error reintentando batch call',
+        error: retryResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error reintentando batch call:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Cancelar batch call
+const cancelBatchCall = async (req, res) => {
+  try {
+    const { batchId } = req.params;
+
+    console.log(`❌ Cancelando batch call: ${batchId}`);
+
+    const cancelResult = await elevenlabsService.cancelBatchCall(batchId);
+
+    if (cancelResult.success) {
+      res.json({
+        success: true,
+        message: 'Batch call cancelado exitosamente',
+        data: cancelResult.data
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error cancelando batch call',
+        error: cancelResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error cancelando batch call:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getGroups,
   getGroupById,
@@ -731,5 +1260,12 @@ module.exports = {
   updateClientInGroup,
   getClientInGroup,
   downloadProcessedFile,
-  prepareAgent
+  prepareAgent,
+  // Batch calling functions
+  startBatchCall,
+  getBatchCallStatus,
+  getBatchCallStatusSSE,
+  listBatchCalls,
+  retryBatchCall,
+  cancelBatchCall
 }; 

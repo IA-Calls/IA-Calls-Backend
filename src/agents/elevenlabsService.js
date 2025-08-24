@@ -325,6 +325,399 @@ class ElevenLabsService {
       };
     }
   }
+
+  // ===== BATCH CALLING FUNCTIONS =====
+
+  /**
+   * Iniciar llamadas en masa (batch call)
+   * @param {Object} batchData - Datos del batch call
+   * @param {string} batchData.callName - Nombre identificativo del batch
+   * @param {string} batchData.agentId - ID del agente
+   * @param {string} batchData.agentPhoneNumberId - ID del número telefónico del agente
+   * @param {Array} batchData.recipients - Lista de destinatarios
+   * @param {number|null} batchData.scheduledTimeUnix - Tiempo programado (null para inmediato)
+   * @returns {Promise<Object>} - Resultado del batch call
+   */
+  async submitBatchCall(batchData) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      const { callName, agentId, agentPhoneNumberId, recipients} = batchData;
+
+      console.log('📞 Iniciando batch call en ElevenLabs...');
+      console.log(`📋 Nombre: ${callName}`);
+      console.log(`🤖 Agente: ${agentId}`);
+      console.log(`📱 Número: ${agentPhoneNumberId}`);
+      console.log(`👥 Destinatarios: ${recipients.length}`);
+
+      const payload = {
+        call_name: callName,
+        agent_id: agentId,
+        agent_phone_number_id: agentPhoneNumberId,
+        scheduled_time_unix: Math.floor(Date.now() / 1000),
+        recipients: recipients.map(recipient => ({
+          phone_number: recipient.phone_number,
+          ...recipient.variables || {}
+        }))
+      };
+
+      console.log('📋 Payload del batch call:', JSON.stringify(payload, null, 2));
+
+      const response = await axios.post(`${this.baseUrl}/convai/batch-calling/submit`, payload, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+      console.log('✅ Batch call iniciado exitosamente:', result);
+
+      return {
+        success: true,
+        data: result,
+        message: `Batch call "${callName}" iniciado exitosamente`
+      };
+
+    } catch (error) {
+      console.error('❌ Error iniciando batch call:', error);
+      let errorMessage = error.message;
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al iniciar batch call'
+      };
+    }
+  }
+
+  /**
+   * Consultar estado de un batch call
+   * @param {string} batchId - ID del batch call
+   * @returns {Promise<Object>} - Estado del batch call
+   */
+  async getBatchCallStatus(batchId) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log(`📊 Consultando estado del batch call: ${batchId}`);
+
+      const response = await axios.get(`${this.baseUrl}/convai/batch-calling/${batchId}`, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+      console.log('✅ Estado del batch call obtenido:', result);
+
+      return {
+        success: true,
+        data: result,
+        message: 'Estado del batch call obtenido exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error consultando estado del batch call:', error);
+      let errorMessage = error.message;
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al consultar estado del batch call'
+      };
+    }
+  }
+
+  /**
+   * Listar todos los batch calls del workspace
+   * @returns {Promise<Object>} - Lista de batch calls
+   */
+  async listBatchCalls() {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log('📋 Listando batch calls del workspace...');
+
+      const response = await axios.get(`${this.baseUrl}/convai/batch-calling/workspace`, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+      console.log(`✅ ${result.length || 0} batch calls encontrados`);
+
+      return {
+        success: true,
+        data: result,
+        message: 'Lista de batch calls obtenida exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error listando batch calls:', error);
+      let errorMessage = error.message;
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al listar batch calls'
+      };
+    }
+  }
+
+  /**
+   * Reintentar llamadas fallidas de un batch call
+   * @param {string} batchId - ID del batch call
+   * @returns {Promise<Object>} - Resultado del reintento
+   */
+  async retryBatchCall(batchId) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log(`🔄 Reintentando batch call: ${batchId}`);
+
+      const response = await axios.post(`${this.baseUrl}/convai/batch-calling/${batchId}/retry`, {}, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+      console.log('✅ Batch call reintentado exitosamente:', result);
+
+      return {
+        success: true,
+        data: result,
+        message: 'Batch call reintentado exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error reintentando batch call:', error);
+      let errorMessage = error.message;
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al reintentar batch call'
+      };
+    }
+  }
+
+  /**
+   * Cancelar un batch call en curso
+   * @param {string} batchId - ID del batch call
+   * @returns {Promise<Object>} - Resultado de la cancelación
+   */
+  async cancelBatchCall(batchId) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log(`❌ Cancelando batch call: ${batchId}`);
+
+      const response = await axios.post(`${this.baseUrl}/convai/batch-calling/${batchId}/cancel`, {}, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+      console.log('✅ Batch call cancelado exitosamente:', result);
+
+      return {
+        success: true,
+        data: result,
+        message: 'Batch call cancelado exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error cancelando batch call:', error);
+      let errorMessage = error.message;
+      
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al cancelar batch call'
+      };
+    }
+  }
+
+  // ===== CONVERSATION METHODS =====
+
+  // Obtener detalles de una conversación (transcripción, análisis, metadata)
+  async getConversationDetails(conversationId) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log(`📝 Obteniendo detalles de conversación: ${conversationId}`);
+
+      const response = await axios.get(`${this.baseUrl}/convai/conversations/${conversationId}`, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      const result = response.data;
+
+      return {
+        success: true,
+        data: result,
+        message: 'Detalles de conversación obtenidos exitosamente'
+      };
+
+    } catch (error) {
+      console.error(`❌ Error obteniendo detalles de conversación ${conversationId}:`, error);
+      let errorMessage = error.message;
+
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al obtener detalles de conversación'
+      };
+    }
+  }
+
+  // Obtener URL del audio de una conversación
+  async getConversationAudioUrl(conversationId) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      // Retornar la URL directa del audio
+      const audioUrl = `${this.baseUrl}/convai/conversations/${conversationId}/audio`;
+      
+      console.log(`🎵 URL de audio generada para conversación ${conversationId}: ${audioUrl}`);
+
+      return {
+        success: true,
+        data: {
+          audio_url: audioUrl,
+          conversation_id: conversationId
+        },
+        message: 'URL de audio generada exitosamente'
+      };
+
+    } catch (error) {
+      console.error(`❌ Error generando URL de audio para conversación ${conversationId}:`, error);
+
+      return {
+        success: false,
+        error: error.message,
+        message: 'Error al generar URL de audio'
+      };
+    }
+  }
 }
 
 module.exports = new ElevenLabsService();

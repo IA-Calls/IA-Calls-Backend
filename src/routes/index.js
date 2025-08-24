@@ -23,6 +23,9 @@ const gcpDocumentsRoutes = require('./gcpDocuments');
 // Importar rutas de agentes
 const agentsRoutes = require('./agents');
 
+// Importar rutas de batch calls
+const batchCallsRoutes = require('./batchCalls');
+
 // Importar middleware
 const { authenticate } = require('../middleware/auth');
 
@@ -44,6 +47,9 @@ router.use('/gcp-documents', gcpDocumentsRoutes);
 
 // Rutas de agentes
 router.use('/agents', agentsRoutes);
+
+// Rutas de batch calls
+router.use('/batch-calls', batchCallsRoutes);
 
 // Rutas públicas
 router.get('/status', getStatus);
