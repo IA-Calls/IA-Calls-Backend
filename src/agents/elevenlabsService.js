@@ -24,10 +24,10 @@ class ElevenLabsService {
       // Configuración predeterminada del agente
       const defaultConfig = {
         conversation_config: {
-          tts: {
-            voice_id: "pNInz6obpgDQGcFmaJgB", // Adam - voz por defecto disponible
-            model_id: "eleven_turbo_v2"
-          },
+                  tts: {
+          voice_id: "pNInz6obpgDQGcFmaJgB", // Adam - voz por defecto disponible
+          model_id: "eleven_turbo_v2_5" // Requerido para agentes no-inglés
+        },
           conversation: {
             text_only: false // Usar audio
           },
@@ -154,30 +154,49 @@ class ElevenLabsService {
         throw new Error('API key de ElevenLabs no configurada');
       }
 
-      const response = await axios.put(`${this.baseUrl}/convai/agents/${agentId}`, updateData, {
+      console.log('🔄 Actualizando agente en ElevenLabs...');
+      console.log('📋 Datos de actualización:', JSON.stringify(updateData, null, 2));
+
+      const response = await axios.patch(`${this.baseUrl}/convai/agents/${agentId}`, updateData, {
         headers: {
           'xi-api-key': this.apiKey,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
         }
       });
 
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
       const result = response.data;
+      console.log('✅ Agente actualizado exitosamente:', result);
+
       return {
         success: true,
-        data: result
+        data: result,
+        message: 'Agente actualizado exitosamente'
       };
 
     } catch (error) {
-      console.error('Error actualizando agente:', error);
-      
+      console.error('❌ Error actualizando agente:', error);
       let errorMessage = error.message;
-      if (error.response) {
-        errorMessage = `Error ${error.response.status}: ${error.response.data || error.response.statusText}`;
-      }
       
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+
       return {
         success: false,
-        error: errorMessage
+        error: errorMessage,
+        message: 'Error al actualizar agente'
       };
     }
   }

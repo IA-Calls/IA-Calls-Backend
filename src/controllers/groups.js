@@ -1,6 +1,8 @@
 const Group = require('../models/Group');
 const Client = require('../models/Client');
 const FileProcessor = require('../services/fileProcessor');
+const { elevenlabsService } = require('../agents');
+const User = require('../models/User');
 
 // Obtener todos los grupos
 const getGroups = async (req, res) => {
@@ -567,6 +569,157 @@ const downloadProcessedFile = async (req, res) => {
   }
 };
 
+// Preparar agente con información del grupo
+const prepareAgent = async (req, res) => {
+  try {
+    const { id } = req.params; // ID del grupo
+    const { userId } = req.body; // ID del usuario desde el body
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de usuario es requerido en el body de la petición'
+      });
+    }
+
+    // Obtener el grupo
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Obtener el usuario para acceder a su agente
+    const user = await User.findById(userId);
+    if (!user || !user.agentId) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado o no tiene un agente asignado'
+      });
+    }
+
+    console.log(`🤖 Preparando agente ${user.agentId} para el grupo "${group.name}"`);
+
+    // Construir el prompt personalizado con información del grupo
+    const customPrompt = buildGroupPrompt(group, user);
+
+    console.log('📋 Prompt personalizado:', customPrompt);
+
+    // Actualizar el agente en ElevenLabs con payload correcto
+    const updateData = {
+      conversation_config: {
+        tts: {
+          voice_id: "pNInz6obpgDQGcFmaJgB", // Adam - voz que sabemos que funciona
+          model_id: "eleven_turbo_v2_5" // Requerido para agentes no-inglés
+        },
+        conversation: {
+          text_only: false
+        },
+        agent: {
+          language: group.idioma || "es",
+          prompt: {
+            prompt: customPrompt,
+            llm: "gpt-4o-mini", // LLM requerido
+            temperature: 0.7,   // Temperatura por defecto
+            max_tokens: 1000    // Tokens máximos por defecto
+          }
+        }
+      },
+      name: `Agente ${user.firstName || user.username} - ${group.name}`,
+      tags: [
+        "ia-calls", 
+        "grupo", 
+        group.name.toLowerCase().replace(/\s+/g, '-'),
+        user.username,
+        "preparado"
+      ]
+    };
+
+    const updateResult = await elevenlabsService.updateAgent(user.agentId, updateData);
+
+    if (updateResult.success) {
+      console.log(`✅ Agente ${user.agentId} preparado exitosamente para el grupo "${group.name}"`);
+      
+      res.json({
+        success: true,
+        message: `Agente preparado exitosamente para el grupo "${group.name}"`,
+        data: {
+          agentId: user.agentId,
+          groupId: group.id,
+          groupName: group.name,
+          customPrompt: customPrompt,
+          updatedAgent: updateResult.data
+        }
+      });
+    } else {
+      console.error(`❌ Error preparando agente: ${updateResult.error}`);
+      
+      res.status(400).json({
+        success: false,
+        message: 'Error preparando el agente',
+        error: updateResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error('Error preparando agente:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Función auxiliar para construir el prompt personalizado
+function buildGroupPrompt(group, user) {
+  const userName = user.firstName || user.username;
+  const groupName = group.name;
+  const groupDescription = group.description || 'Sin descripción específica';
+  const groupPrompt = group.prompt || '';
+  const groupVariables = group.variables || {};
+
+  // Prompt base
+  let customPrompt = `Eres el asistente personal de ${userName} en IA-Calls, especializado en el grupo "${groupName}".
+
+INFORMACIÓN DEL GRUPO:
+- Nombre: ${groupName}
+- Descripción: ${groupDescription}`;
+
+  // Agregar prompt específico del grupo si existe
+  if (groupPrompt) {
+    customPrompt += `
+- Instrucciones específicas: ${groupPrompt}`;
+  }
+
+  // Agregar variables del grupo si existen
+  if (Object.keys(groupVariables).length > 0) {
+    customPrompt += `
+- Variables del grupo:`;
+    for (const [key, value] of Object.entries(groupVariables)) {
+      customPrompt += `
+  * ${key}: ${value}`;
+    }
+  }
+
+  // Instrucciones generales
+  customPrompt += `
+
+INSTRUCCIONES:
+1. Actúa como un experto en el contexto de este grupo específico
+2. Usa la información y descripción del grupo para personalizar tus respuestas
+3. Mantén un tono profesional y amigable
+4. Si hay instrucciones específicas del grupo, síguelas prioritariamente
+5. Ayuda con tareas relacionadas con IA-Calls y este grupo en particular
+6. Si no tienes información específica, pregunta por más detalles
+
+Responde siempre en español y mantén el contexto del grupo "${groupName}" en todas tus interacciones.`;
+
+  return customPrompt;
+}
+
 module.exports = {
   getGroups,
   getGroupById,
@@ -577,5 +730,6 @@ module.exports = {
   removeClientFromGroup,
   updateClientInGroup,
   getClientInGroup,
-  downloadProcessedFile
+  downloadProcessedFile,
+  prepareAgent
 }; 

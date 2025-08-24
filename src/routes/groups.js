@@ -2,9 +2,13 @@ const express = require('express');
 const router = express.Router();
 const groupsController = require('../controllers/groups');
 
-// Middleware para autenticación (opcional, descomentar si se requiere)
-// const { authenticate } = require('../middleware/auth');
-// router.use(authenticate);
+// Middleware para autenticación
+
+// Ruta para descargar archivos procesados (debe ir antes de /:id para evitar conflictos)
+router.get('/download/:fileName', groupsController.downloadProcessedFile);
+
+// Ruta para preparar agente con información del grupo (debe ir antes de /:id para evitar conflictos)
+router.post('/:id/prepare-agent', groupsController.prepareAgent);
 
 // Rutas de grupos
 router.get('/', groupsController.getGroups);
@@ -18,8 +22,5 @@ router.post('/:id/clients', groupsController.addClientToGroup);
 router.get('/:id/clients/:client_id', groupsController.getClientInGroup);
 router.put('/:id/clients/:client_id', groupsController.updateClientInGroup);
 router.delete('/:id/clients/:client_id', groupsController.removeClientFromGroup);
-
-// Ruta para descargar archivos procesados
-router.get('/download/:fileName', groupsController.downloadProcessedFile);
 
 module.exports = router; 
