@@ -133,7 +133,7 @@ router.get('/files/:id', async (req, res) => {
   }
 });
 
-// GET /api/storage/files/:id/download - Descargar archivo
+// GET /api/storage/files/:id/download - Descargar archivo (redirige a GCP)
 router.get('/files/:id/download', async (req, res) => {
   try {
     const fileId = parseInt(req.params.id);
@@ -163,22 +163,24 @@ router.get('/files/:id/download', async (req, res) => {
       });
     }
 
-    // Descargar archivo del bucket
-    const downloadResult = await storageService.downloadFile(file.fileName);
-
-    // Configurar headers para descarga
-    res.setHeader('Content-Type', file.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
-    res.setHeader('Content-Length', downloadResult.size);
-
-    // Enviar el archivo
-    res.send(downloadResult.buffer);
+    // Generar URL de descarga directa desde GCP (válida por 1 hora)
+    const urlResult = await storageService.generateDownloadUrl(file.fileName, 1);
+    
+    if (urlResult.success) {
+      // Redirigir al usuario a la URL de descarga de GCP
+      res.redirect(urlResult.downloadUrl);
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: 'Archivo no encontrado en GCP'
+      });
+    }
 
   } catch (error) {
-    console.error('Error descargando archivo:', error);
+    console.error('Error generando URL de descarga:', error);
     res.status(500).json({
       success: false,
-      message: 'Error descargando archivo',
+      message: 'Error accediendo al archivo',
       error: error.message
     });
   }

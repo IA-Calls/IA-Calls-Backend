@@ -3,6 +3,8 @@ const Client = require('../models/Client');
 const FileProcessor = require('../services/fileProcessor');
 const { elevenlabsService } = require('../agents');
 const User = require('../models/User');
+const BatchCall = require('../models/BatchCall');
+const CallRecord = require('../models/CallRecord');
 
 // Obtener todos los grupos
 const getGroups = async (req, res) => {
@@ -527,7 +529,7 @@ const getClientInGroup = async (req, res) => {
   }
 };
 
-// Descargar archivo procesado
+// Descargar archivo procesado desde GCP
 const downloadProcessedFile = async (req, res) => {
   try {
     const { fileName } = req.params;
@@ -539,25 +541,30 @@ const downloadProcessedFile = async (req, res) => {
       });
     }
 
-    const path = require('path');
-    const fs = require('fs');
+    // Usar el servicio de storage para generar URL de descarga desde GCP
+    const storageService = require('../services/storage');
     
-    const filePath = path.join(__dirname, '../../uploads', fileName);
-    
-    // Verificar si el archivo existe
-    if (!fs.existsSync(filePath)) {
+    try {
+      // Generar URL de descarga válida por 1 hora
+      const urlResult = await storageService.generateDownloadUrl(fileName, 1);
+      
+      if (urlResult.success) {
+        // Redirigir al usuario a la URL de descarga de GCP
+        res.redirect(urlResult.downloadUrl);
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: 'Archivo no encontrado en GCP'
+        });
+      }
+      
+    } catch (storageError) {
+      console.error('Error accediendo a GCP:', storageError);
       return res.status(404).json({
         success: false,
-        message: 'Archivo no encontrado'
+        message: 'Archivo no encontrado o error accediendo al almacenamiento'
       });
     }
-
-    // Configurar headers para descarga
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    
-    // Enviar archivo
-    res.sendFile(filePath);
     
   } catch (error) {
     console.error('Error descargando archivo:', error);
@@ -723,11 +730,32 @@ Responde siempre en español y mantén el contexto del grupo "${groupName}" en t
 // ===== BATCH CALLING FUNCTIONS =====
 
 // Función auxiliar para enriquecer datos del batch call con transcripciones y audios
-const enrichBatchCallData = async (batchData) => {
+const enrichBatchCallData = async (batchData, userId = null) => {
   try {
     console.log(`🔍 Enriqueciendo datos del batch call...`);
     
     const enrichedData = { ...batchData };
+    
+    // 🔄 TRACKING: Buscar o crear registro del batch call
+    let batchCallRecord = null;
+    try {
+      batchCallRecord = await BatchCall.findByBatchId(batchData.id);
+      if (batchCallRecord) {
+        console.log(`📝 Batch call record encontrado: ${batchCallRecord.id}`);
+        
+        // Actualizar estado del batch
+        await batchCallRecord.updateStatus({
+          status: batchData.status,
+          completed_calls: batchData.recipients?.filter(r => r.status === 'completed').length || 0,
+          failed_calls: batchData.recipients?.filter(r => r.status === 'failed').length || 0,
+          completed_at: batchData.status === 'completed' ? new Date() : null
+        });
+      } else {
+        console.log(`⚠️ No se encontró registro del batch call: ${batchData.id}`);
+      }
+    } catch (trackingError) {
+      console.error('⚠️ Error actualizando batch tracking:', trackingError);
+    }
     
     if (batchData.recipients && batchData.recipients.length > 0) {
       console.log(`📝 Procesando ${batchData.recipients.length} destinatarios para transcripciones...`);
@@ -765,17 +793,50 @@ const enrichBatchCallData = async (batchData) => {
                 console.log(`⚠️ No se pudieron obtener detalles para ${recipient.phone_number}: ${conversationResult.error}`);
               }
               
-              // Obtener URL del audio
-              const audioResult = await elevenlabsService.getConversationAudioUrl(recipient.conversation_id);
+              // Descargar audio y subirlo a GCS
+              // Usar el userId pasado como parámetro o extraer de metadatos
+              const userIdForAudio = userId || batchData.user_id || 'unknown';
+              
+              const audioResult = await elevenlabsService.downloadAndUploadConversationAudio(
+                recipient.conversation_id, 
+                userIdForAudio
+              );
+              
               if (audioResult.success) {
-                enrichedRecipient.audio_url = audioResult.data.audio_url;
-                console.log(`🎵 URL de audio generada para ${recipient.phone_number}`);
+                enrichedRecipient.audio_url = audioResult.data.gcs_url;
+                enrichedRecipient.audio_file_name = audioResult.data.gcs_file_name;
+                enrichedRecipient.audio_size = audioResult.data.size;
+                enrichedRecipient.audio_content_type = audioResult.data.content_type;
+                enrichedRecipient.uploaded_at = audioResult.data.uploaded_at;
+                console.log(`🎵 Audio descargado y subido a GCS para ${recipient.phone_number} (${audioResult.data.size} bytes)`);
               } else {
-                console.log(`⚠️ No se pudo generar URL de audio para ${recipient.phone_number}: ${audioResult.error}`);
+                console.log(`⚠️ No se pudo descargar/subir audio para ${recipient.phone_number}: ${audioResult.error}`);
               }
               
             } catch (error) {
               console.error(`❌ Error procesando conversación ${recipient.conversation_id}:`, error);
+            }
+          }
+          
+          // 🔄 TRACKING: Actualizar registro individual de la llamada
+          if (batchCallRecord) {
+            try {
+              await CallRecord.updateByPhoneAndBatch(batchCallRecord.id, recipient.phone_number, {
+                recipient_id: recipient.id,
+                conversation_id: recipient.conversation_id,
+                status: recipient.status,
+                call_duration_secs: enrichedRecipient.duration_secs,
+                transcript_summary: enrichedRecipient.summary,
+                full_transcript: enrichedRecipient.transcript,
+                audio_url: enrichedRecipient.audio_url,
+                audio_file_name: enrichedRecipient.audio_file_name,
+                audio_size: enrichedRecipient.audio_size,
+                audio_content_type: enrichedRecipient.audio_content_type,
+                audio_uploaded_at: enrichedRecipient.uploaded_at,
+                call_ended_at: recipient.status === 'completed' ? new Date() : null
+              });
+            } catch (trackingError) {
+              console.error(`⚠️ Error actualizando call record para ${recipient.phone_number}:`, trackingError);
             }
           }
           
@@ -948,11 +1009,33 @@ const startBatchCall = async (req, res) => {
     if (batchResult.success) {
       console.log(`✅ Batch call iniciado exitosamente para el grupo "${group.name}"`);
       
+      const batchId = batchResult.data.batch_id || batchResult.data.id;
+      
+      try {
+        console.log(`📝 === GUARDANDO TRACKING OPTIMIZADO ===`);
+        
+        // FLUJO OPTIMIZADO: Guardar directamente en la tabla groups
+        await group.startBatchCall(batchId, recipients.length, {
+          agent_phone_number_id: agentPhoneNumberId,
+          scheduled_time_unix: scheduledTimeUnix,
+          elevenlabs_response: batchResult.data,
+          call_name: batchData.callName,
+          agent_id: user.agentId,
+          user_id: user.id
+        });
+        
+        console.log(`✅ Tracking optimizado guardado en grupo ${group.id}`);
+        
+      } catch (trackingError) {
+        console.error('⚠️ Error guardando tracking (no crítico):', trackingError);
+        // No fallar la respuesta por errores de tracking
+      }
+      
       res.json({
         success: true,
         message: `Llamadas iniciadas exitosamente para el grupo "${group.name}"`,
         data: {
-          batchId: batchResult.data.batch_id || batchResult.data.id,
+          batchId: batchId,
           groupId: group.id,
           groupName: group.name,
           agentId: user.agentId,
@@ -986,20 +1069,35 @@ const startBatchCall = async (req, res) => {
   }
 };
 
-// Consultar estado de un batch call (versión tradicional)
+// Consultar estado de un batch call (FLUJO OPTIMIZADO)
 const getBatchCallStatus = async (req, res) => {
   try {
     const { batchId } = req.params;
+    const { userId } = req.query; // Permitir pasar userId como query parameter
 
     console.log(`📊 Consultando estado del batch call: ${batchId}`);
+    if (userId) {
+      console.log(`👤 Usuario especificado para audios: ${userId}`);
+    }
 
     const statusResult = await elevenlabsService.getBatchCallStatus(batchId);
 
     if (statusResult.success) {
-      console.log(`✅ Estado del batch call obtenido, enriqueciendo datos...`);
+      console.log(`✅ Estado del batch call obtenido, sincronizando con grupo...`);
+      
+      // FLUJO OPTIMIZADO: Sincronizar automáticamente con la tabla groups
+      try {
+        const group = await Group.findByBatchId(batchId);
+        if (group) {
+          console.log(`📝 Sincronizando estado con grupo ${group.id}`);
+          await group.updateBatchStatus(statusResult.data);
+        }
+      } catch (syncError) {
+        console.error('⚠️ Error sincronizando con grupo (no crítico):', syncError);
+      }
       
       // Enriquecer datos con transcripciones y audios
-      const enrichedData = await enrichBatchCallData(statusResult.data);
+      const enrichedData = await enrichBatchCallData(statusResult.data, userId);
       
       res.json({
         success: true,
@@ -1027,8 +1125,12 @@ const getBatchCallStatus = async (req, res) => {
 // Consultar estado de un batch call con Server-Sent Events (SSE)
 const getBatchCallStatusSSE = async (req, res) => {
   const { batchId } = req.params;
+  const { userId } = req.query; // Permitir pasar userId como query parameter
   
   console.log(`📊 Iniciando SSE para batch call: ${batchId}`);
+  if (userId) {
+    console.log(`👤 Usuario especificado para audios: ${userId}`);
+  }
 
   // Configurar headers para SSE
   res.writeHead(200, {
@@ -1066,7 +1168,7 @@ const getBatchCallStatusSSE = async (req, res) => {
         console.log(`✅ Estado SSE obtenido, enriqueciendo datos...`);
         
         // Enriquecer datos con transcripciones y audios
-        const enrichedData = await enrichBatchCallData(statusResult.data);
+        const enrichedData = await enrichBatchCallData(statusResult.data, userId);
         
         // Solo enviar si hay cambios o es la primera consulta
         if (!lastStatus || JSON.stringify(enrichedData) !== JSON.stringify(lastStatus)) {
@@ -1249,6 +1351,447 @@ const cancelBatchCall = async (req, res) => {
   }
 };
 
+// Listar audios de conversaciones de un usuario
+const listUserConversationAudios = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { maxResults = 50 } = req.query;
+
+    console.log(`🎵 Listando audios de conversaciones para usuario: ${userId}`);
+
+    const storageService = require('../services/storage');
+    const audioList = await storageService.listConversationAudios(userId, parseInt(maxResults));
+
+    if (audioList.success) {
+      console.log(`✅ Se encontraron ${audioList.total} audios para el usuario ${userId}`);
+      
+      res.json({
+        success: true,
+        message: `Audios de conversaciones obtenidos exitosamente`,
+        data: {
+          userId: userId,
+          audios: audioList.audios,
+          total: audioList.total
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error listando audios de conversaciones',
+        error: audioList.error
+      });
+    }
+
+  } catch (error) {
+    console.error(`❌ Error listando audios para usuario ${req.params.userId}:`, error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Generar URL de descarga para un audio específico
+const generateAudioDownloadUrl = async (req, res) => {
+  try {
+    const { fileName } = req.params;
+    const { expiresInHours = 24 } = req.query;
+
+    console.log(`🔗 Generando URL de descarga para audio: ${fileName}`);
+
+    const storageService = require('../services/storage');
+    const urlResult = await storageService.generateAudioDownloadUrl(fileName, parseInt(expiresInHours));
+
+    if (urlResult.success) {
+      console.log(`✅ URL de descarga generada exitosamente para ${fileName}`);
+      
+      res.json({
+        success: true,
+        message: 'URL de descarga generada exitosamente',
+        data: {
+          fileName: urlResult.fileName,
+          downloadUrl: urlResult.downloadUrl,
+          expiresAt: urlResult.expiresAt
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Error generando URL de descarga',
+        error: urlResult.error
+      });
+    }
+
+  } catch (error) {
+    console.error(`❌ Error generando URL para ${req.params.fileName}:`, error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// ===== TRACKING ENDPOINTS =====
+
+// Obtener historial de llamadas de un grupo
+const getGroupCallHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 20 } = req.query;
+
+    console.log(`📋 Obteniendo historial de llamadas para grupo: ${id}`);
+
+    // Verificar que el grupo existe
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Obtener batch calls del grupo
+    const batchCalls = await BatchCall.findByGroupId(id, parseInt(limit));
+    
+    // Para cada batch call, obtener sus call records
+    const batchCallsWithDetails = await Promise.all(
+      batchCalls.map(async (batchCall) => {
+        const callRecords = await CallRecord.findByBatchCallId(batchCall.id);
+        const stats = await batchCall.getStats();
+        
+        return {
+          ...batchCall.toJSON(),
+          callRecords: callRecords.map(record => record.toJSON()),
+          stats: stats
+        };
+      })
+    );
+
+    console.log(`✅ Historial obtenido: ${batchCalls.length} batch calls`);
+
+    res.json({
+      success: true,
+      message: 'Historial de llamadas obtenido exitosamente',
+      data: {
+        group: group.toJSON(),
+        batchCalls: batchCallsWithDetails,
+        total: batchCalls.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo historial de grupo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo historial de llamadas',
+      error: error.message
+    });
+  }
+};
+
+// Obtener historial de llamadas de un cliente específico
+const getClientCallHistory = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+    const { limit = 10 } = req.query;
+
+    console.log(`📋 Obteniendo historial de llamadas para cliente: ${clientId}`);
+
+    // Verificar que el cliente existe
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no encontrado'
+      });
+    }
+
+    // Obtener historial de llamadas del cliente
+    const callRecords = await CallRecord.findByClientId(clientId, parseInt(limit));
+
+    console.log(`✅ Historial obtenido: ${callRecords.length} llamadas`);
+
+    res.json({
+      success: true,
+      message: 'Historial de cliente obtenido exitosamente',
+      data: {
+        client: client.toJSON(),
+        callHistory: callRecords.map(record => record.toJSON()),
+        total: callRecords.length
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo historial de cliente:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo historial del cliente',
+      error: error.message
+    });
+  }
+};
+
+// Verificar si un cliente ya fue llamado
+const checkClientCallStatus = async (req, res) => {
+  try {
+    const { clientId } = req.params;
+
+    console.log(`🔍 Verificando estado de llamadas para cliente: ${clientId}`);
+
+    // Verificar que el cliente existe
+    const client = await Client.findById(clientId);
+    if (!client) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no encontrado'
+      });
+    }
+
+    // Verificar si ya fue llamado exitosamente
+    const lastSuccessfulCall = await CallRecord.hasClientBeenCalled(clientId);
+
+    res.json({
+      success: true,
+      message: 'Estado de llamadas verificado',
+      data: {
+        client: client.toJSON(),
+        hasBeenCalled: !!lastSuccessfulCall,
+        lastSuccessfulCall: lastSuccessfulCall ? lastSuccessfulCall.toJSON() : null
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error verificando estado del cliente:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verificando estado de llamadas',
+      error: error.message
+    });
+  }
+};
+
+// Obtener estadísticas de llamadas de un grupo
+const getGroupCallStats = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log(`📊 Obteniendo estadísticas de llamadas para grupo: ${id}`);
+
+    // Verificar que el grupo existe
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Obtener todos los batch calls del grupo
+    const batchCalls = await BatchCall.findByGroupId(id, 1000); // Límite alto para estadísticas
+
+    // Calcular estadísticas generales
+    const totalBatchCalls = batchCalls.length;
+    const totalRecipients = batchCalls.reduce((sum, batch) => sum + batch.totalRecipients, 0);
+    const totalCompletedCalls = batchCalls.reduce((sum, batch) => sum + batch.completedCalls, 0);
+    const totalFailedCalls = batchCalls.reduce((sum, batch) => sum + batch.failedCalls, 0);
+
+    const successRate = totalRecipients > 0 ? (totalCompletedCalls / totalRecipients * 100).toFixed(2) : 0;
+
+    // Obtener estadísticas detalladas por estado
+    const statusBreakdown = {};
+    for (const batchCall of batchCalls) {
+      const stats = await batchCall.getStats();
+      for (const stat of stats) {
+        statusBreakdown[stat.status] = (statusBreakdown[stat.status] || 0) + parseInt(stat.count);
+      }
+    }
+
+    console.log(`✅ Estadísticas calculadas para ${totalBatchCalls} batch calls`);
+
+    res.json({
+      success: true,
+      message: 'Estadísticas obtenidas exitosamente',
+      data: {
+        group: group.toJSON(),
+        summary: {
+          totalBatchCalls,
+          totalRecipients,
+          totalCompletedCalls,
+          totalFailedCalls,
+          successRate: parseFloat(successRate)
+        },
+        statusBreakdown,
+        recentBatchCalls: batchCalls.slice(0, 5).map(batch => batch.toJSON())
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo estadísticas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo estadísticas',
+      error: error.message
+    });
+  }
+};
+
+// ===== ENDPOINTS OPTIMIZADOS PARA EL FLUJO NUEVO =====
+
+// Consultar estado de batch call por grupo (FLUJO OPTIMIZADO)
+const getGroupBatchStatus = async (req, res) => {
+  try {
+    const { id } = req.params; // ID del grupo
+    const { userId } = req.query;
+
+    console.log(`📊 Consultando estado de batch call para grupo: ${id}`);
+
+    // 1. Buscar el grupo
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // 2. Verificar si el grupo tiene un batch call
+    if (!group.batchId) {
+      return res.json({
+        success: true,
+        message: 'Este grupo no ha sido llamado aún',
+        data: {
+          group: group.toJSON(),
+          batchCall: null,
+          hasBeenCalled: false
+        }
+      });
+    }
+
+    // 3. Obtener estado actualizado desde ElevenLabs usando el batch_id almacenado
+    console.log(`🔍 Consultando ElevenLabs con batch_id: ${group.batchId}`);
+    const statusResult = await elevenlabsService.getBatchCallStatus(group.batchId);
+
+    if (statusResult.success) {
+      console.log(`✅ Estado obtenido de ElevenLabs, actualizando DB...`);
+      
+      // 4. Actualizar solo si hay cambios (comparar status actual)
+      const currentStatus = group.batchStatus;
+      const newStatus = statusResult.data.status;
+      
+      if (currentStatus !== newStatus) {
+        console.log(`📝 Status cambió de "${currentStatus}" a "${newStatus}", actualizando DB...`);
+        await group.updateBatchStatus(statusResult.data);
+      } else {
+        console.log(`✅ Status sin cambios (${newStatus}), usando datos de DB`);
+      }
+      
+      // 5. Enriquecer datos si se especifica userId
+      let enrichedData = statusResult.data;
+      if (userId) {
+        enrichedData = await enrichBatchCallData(statusResult.data, userId);
+      }
+
+      // 6. Obtener grupo actualizado para estadísticas
+      const updatedGroup = await Group.findById(id);
+
+      res.json({
+        success: true,
+        message: 'Estado del batch call obtenido exitosamente',
+        data: {
+          group: updatedGroup.toJSON(),
+          batchCall: enrichedData,
+          hasBeenCalled: true,
+          lastSync: new Date().toISOString()
+        }
+      });
+    } else {
+      // Si hay error con ElevenLabs, devolver datos de la DB
+      console.log(`⚠️ Error con ElevenLabs: ${statusResult.error}, devolviendo datos de DB`);
+      
+      res.json({
+        success: true,
+        message: 'Estado del batch call (datos de DB)',
+        data: {
+          group: group.toJSON(),
+          batchCall: null,
+          hasBeenCalled: true,
+          lastSync: group.updatedAt,
+          warning: 'Datos de ElevenLabs no disponibles'
+        }
+      });
+    }
+
+  } catch (error) {
+    console.error('Error consultando estado del grupo:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+};
+
+// Obtener clientes de un grupo que NO han sido llamados
+const getUncalledClients = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 50 } = req.query;
+
+    console.log(`📋 Obteniendo clientes no llamados para grupo: ${id}`);
+
+    // Verificar que el grupo existe
+    const group = await Group.findById(id);
+    if (!group) {
+      return res.status(404).json({
+        success: false,
+        message: 'Grupo no encontrado'
+      });
+    }
+
+    // Obtener todos los clientes del grupo
+    const allClients = await group.getClients();
+
+    // Obtener IDs de clientes que ya fueron llamados exitosamente
+    const calledClientIds = new Set();
+    
+    for (const client of allClients) {
+      const lastCall = await CallRecord.hasClientBeenCalled(client.id);
+      if (lastCall) {
+        calledClientIds.add(client.id);
+      }
+    }
+
+    // Filtrar clientes no llamados
+    const uncalledClients = allClients
+      .filter(client => !calledClientIds.has(client.id))
+      .slice(0, parseInt(limit));
+
+    console.log(`✅ Encontrados ${uncalledClients.length} clientes no llamados de ${allClients.length} totales`);
+
+    res.json({
+      success: true,
+      message: 'Clientes no llamados obtenidos exitosamente',
+      data: {
+        group: group.toJSON(),
+        uncalledClients: uncalledClients.map(client => client.toJSON()),
+        total: uncalledClients.length,
+        totalGroupClients: allClients.length,
+        calledClients: calledClientIds.size
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error obteniendo clientes no llamados:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo clientes no llamados',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getGroups,
   getGroupById,
@@ -1267,5 +1810,16 @@ module.exports = {
   getBatchCallStatusSSE,
   listBatchCalls,
   retryBatchCall,
-  cancelBatchCall
+  cancelBatchCall,
+  // Audio management functions
+  listUserConversationAudios,
+  generateAudioDownloadUrl,
+  // Call tracking functions
+  getGroupCallHistory,
+  getClientCallHistory,
+  checkClientCallStatus,
+  getGroupCallStats,
+  getUncalledClients,
+  // Optimized flow functions
+  getGroupBatchStatus
 }; 

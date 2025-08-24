@@ -70,24 +70,30 @@ class FileProcessor {
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const fileName = `clientes_procesados_${timestamp}.xlsx`;
       
-      // Crear directorio si no existe
-      const uploadDir = path.join(__dirname, '../../uploads');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
-      }
+      // Generar buffer del archivo Excel
+      const excelBuffer = XLSX.write(processedWorkbook, { type: 'buffer', bookType: 'xlsx' });
       
-      const filePath = path.join(uploadDir, fileName);
+      // Convertir a base64 para subir a GCP
+      const base64Data = excelBuffer.toString('base64');
       
-      // Guardar archivo
-      XLSX.writeFile(processedWorkbook, filePath);
+      // Subir a GCP usando la función de helpers
+      const { uploadDocumentToGCP } = require('../utils/helpers');
+      const uploadResult = await uploadDocumentToGCP(base64Data, fileName, {
+        documentType: 'processed_excel',
+        source: 'file_processor',
+        totalClients: clientsData.length,
+        originalDocument: documentName
+      });
       
       return {
         success: true,
         clientsData,
         processedFile: {
-          fileName,
-          filePath,
-          totalClients: clientsData.length
+          fileName: uploadResult.fileName,
+          gcsUrl: uploadResult.publicUrl,
+          downloadUrl: uploadResult.downloadUrl,
+          totalClients: clientsData.length,
+          uploadedAt: uploadResult.uploadedAt
         }
       };
       

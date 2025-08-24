@@ -23,4 +23,12 @@ router.post('/:batchId/retry', groupsController.retryBatchCall);
 // Cancelar un batch call en curso
 router.post('/:batchId/cancel', groupsController.cancelBatchCall);
 
+// Rutas para gestión de audios
+
+// Listar audios de conversaciones de un usuario
+router.get('/audios/user/:userId', groupsController.listUserConversationAudios);
+
+// Generar URL de descarga para un audio específico
+router.get('/audios/download/:fileName', groupsController.generateAudioDownloadUrl);
+
 module.exports = router;

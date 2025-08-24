@@ -56,9 +56,12 @@ async function consultarEstadoEnriquecido() {
               console.log(`   🗣️ Primer mensaje: "${recipient.transcript[0]?.message?.substring(0, 50)}${recipient.transcript[0]?.message?.length > 50 ? '...' : ''}"`);
             }
             
-            if (recipient.audio_url) {
-              console.log(`   🎵 Audio: ${recipient.audio_url}`);
-            }
+                         if (recipient.audio_url) {
+               console.log(`   🎵 Audio: ${recipient.audio_size} bytes (${recipient.audio_content_type})`);
+               console.log(`   📁 Archivo: ${recipient.audio_file_name}`);
+               console.log(`   🔗 URL: ${recipient.audio_url.substring(0, 80)}...`);
+               console.log(`   📅 Subido: ${recipient.uploaded_at}`);
+             }
             
             console.log('');
           });
@@ -129,6 +132,15 @@ eventSource.addEventListener('status-update', (event) => {
   
   // Aquí puedes actualizar tu UI con los datos enriquecidos
   updateBatchCallUI(data.data);
+  
+     // Ejemplo: Reproducir audio automáticamente
+   data.data.recipients.forEach(recipient => {
+     if (recipient.status === 'completed' && recipient.audio_url) {
+       console.log('🎵 Audio disponible para:', recipient.phone_number);
+       // const audio = new Audio(recipient.audio_url);
+       // audio.play();
+     }
+   });
 });
 
 eventSource.addEventListener('batch-completed', (event) => {

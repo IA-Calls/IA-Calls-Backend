@@ -13,6 +13,12 @@ router.post('/:id/prepare-agent', groupsController.prepareAgent);
 // Rutas para batch calling (deben ir antes de /:id para evitar conflictos)
 router.post('/:id/call', groupsController.startBatchCall);
 
+// Rutas de tracking de llamadas (deben ir antes de /:id para evitar conflictos)
+router.get('/:id/call-history', groupsController.getGroupCallHistory);
+router.get('/:id/call-stats', groupsController.getGroupCallStats);
+router.get('/:id/uncalled-clients', groupsController.getUncalledClients);
+router.get('/:id/batch-status', groupsController.getGroupBatchStatus); // FLUJO OPTIMIZADO
+
 // Rutas de grupos
 router.get('/', groupsController.getGroups);
 router.get('/:id', groupsController.getGroupById);

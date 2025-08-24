@@ -15,6 +15,16 @@ class Group {
     this.variables = groupData.variables || {};
     this.createdAt = groupData.created_at;
     this.updatedAt = groupData.updated_at;
+    
+    // Campos de tracking de batch calls (NUEVOS)
+    this.batchId = groupData.batch_id;
+    this.batchStatus = groupData.batch_status || 'none';
+    this.batchStartedAt = groupData.batch_started_at;
+    this.batchCompletedAt = groupData.batch_completed_at;
+    this.batchTotalRecipients = groupData.batch_total_recipients || 0;
+    this.batchCompletedCalls = groupData.batch_completed_calls || 0;
+    this.batchFailedCalls = groupData.batch_failed_calls || 0;
+    this.batchMetadata = groupData.batch_metadata || {};
   }
 
   // Crear grupo
@@ -50,6 +60,21 @@ class Group {
       return new Group(result.rows[0]);
     } catch (error) {
       throw new Error(`Error buscando grupo: ${error.message}`);
+    }
+  }
+
+  // Buscar grupo por batch_id (NUEVO - para flujo optimizado)
+  static async findByBatchId(batchId) {
+    try {
+      const result = await query('SELECT * FROM "public"."groups" WHERE batch_id = $1 AND is_active = true', [batchId]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return new Group(result.rows[0]);
+    } catch (error) {
+      throw new Error(`Error buscando grupo por batch_id: ${error.message}`);
     }
   }
 
@@ -261,6 +286,120 @@ class Group {
     }
   }
 
+  // ===== MÉTODOS DE TRACKING DE BATCH CALLS =====
+
+  // Iniciar batch call (cuando se presiona "Llamar")
+  async startBatchCall(batchId, totalRecipients, metadata = {}) {
+    try {
+      console.log(`📝 Iniciando batch call para grupo ${this.id}: ${batchId}`);
+      
+      const result = await query(
+        `UPDATE "public"."groups" 
+         SET batch_id = $1, 
+             batch_status = 'in_progress', 
+             batch_started_at = NOW(),
+             batch_total_recipients = $2,
+             batch_metadata = $3,
+             updated_at = NOW()
+         WHERE id = $4
+         RETURNING *`,
+        [batchId, totalRecipients, JSON.stringify(metadata), this.id]
+      );
+
+      if (result.rows.length > 0) {
+        // Actualizar propiedades del objeto actual
+        Object.assign(this, result.rows[0]);
+        console.log(`✅ Batch call iniciado para grupo ${this.id}`);
+        return this;
+      } else {
+        throw new Error('No se pudo actualizar el grupo');
+      }
+    } catch (error) {
+      console.error('❌ Error iniciando batch call:', error);
+      throw new Error(`Error iniciando batch call: ${error.message}`);
+    }
+  }
+
+  // Actualizar estado del batch call (sincronización con ElevenLabs)
+  async updateBatchStatus(batchData) {
+    try {
+      console.log(`📝 Actualizando estado del batch call para grupo ${this.id}`);
+      
+      const completedCalls = batchData.recipients?.filter(r => r.status === 'completed').length || 0;
+      const failedCalls = batchData.recipients?.filter(r => r.status === 'failed').length || 0;
+      
+      const result = await query(
+        `UPDATE "public"."groups" 
+         SET batch_status = $1::VARCHAR(50),
+             batch_completed_calls = $2,
+             batch_failed_calls = $3,
+             batch_completed_at = CASE WHEN $1 = 'completed' THEN NOW() ELSE batch_completed_at END,
+             batch_metadata = $4,
+             updated_at = NOW()
+         WHERE id = $5
+         RETURNING *`,
+        [
+          batchData.status,
+          completedCalls,
+          failedCalls,
+          JSON.stringify(batchData),
+          this.id
+        ]
+      );
+
+      if (result.rows.length > 0) {
+        // Actualizar propiedades del objeto actual
+        Object.assign(this, result.rows[0]);
+        console.log(`✅ Estado del batch call actualizado para grupo ${this.id}`);
+        return this;
+      } else {
+        throw new Error('No se pudo actualizar el estado del batch call');
+      }
+    } catch (error) {
+      console.error('❌ Error actualizando estado del batch call:', error);
+      throw new Error(`Error actualizando estado: ${error.message}`);
+    }
+  }
+
+  // Verificar si el grupo tiene un batch call activo
+  hasActiveBatchCall() {
+    return this.batchId && this.batchStatus === 'in_progress';
+  }
+
+  // Verificar si el grupo ha sido llamado alguna vez
+  hasBeenCalled() {
+    return this.batchId && this.batchStatus !== 'none';
+  }
+
+  // Obtener estadísticas del batch call
+  getBatchCallStats() {
+    if (!this.batchId) {
+      return {
+        hasBeenCalled: false,
+        status: 'none',
+        totalRecipients: 0,
+        completedCalls: 0,
+        failedCalls: 0,
+        successRate: 0
+      };
+    }
+
+    const successRate = this.batchTotalRecipients > 0 
+      ? Math.round((this.batchCompletedCalls / this.batchTotalRecipients) * 100) 
+      : 0;
+
+    return {
+      hasBeenCalled: true,
+      status: this.batchStatus,
+      totalRecipients: this.batchTotalRecipients,
+      completedCalls: this.batchCompletedCalls,
+      failedCalls: this.batchFailedCalls,
+      successRate,
+      startedAt: this.batchStartedAt,
+      completedAt: this.batchCompletedAt
+    };
+  }
+
   // Método para serializar el grupo
   toJSON() {
     return {
@@ -272,11 +411,21 @@ class Group {
       favorite: this.favorite,
       isActive: this.isActive,
       createdBy: this.createdBy,
-      createdByClient: this.createdByClient, // Nuevo campo
+      createdByClient: this.createdByClient,
       idioma: this.idioma,
       variables: this.variables,
       createdAt: this.createdAt,
-      updatedAt: this.updatedAt
+      updatedAt: this.updatedAt,
+      // Campos de tracking de batch calls
+      batchId: this.batchId,
+      batchStatus: this.batchStatus,
+      batchStartedAt: this.batchStartedAt,
+      batchCompletedAt: this.batchCompletedAt,
+      batchTotalRecipients: this.batchTotalRecipients,
+      batchCompletedCalls: this.batchCompletedCalls,
+      batchFailedCalls: this.batchFailedCalls,
+      batchMetadata: this.batchMetadata,
+      batchCallStats: this.getBatchCallStats()
     };
   }
 }

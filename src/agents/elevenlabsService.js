@@ -687,34 +687,79 @@ class ElevenLabsService {
     }
   }
 
-  // Obtener URL del audio de una conversación
-  async getConversationAudioUrl(conversationId) {
+  // Descargar audio de conversación y subirlo a GCP
+  async downloadAndUploadConversationAudio(conversationId, userId) {
     try {
       if (!this.apiKey) {
         throw new Error('API key de ElevenLabs no configurada');
       }
 
-      // Retornar la URL directa del audio
-      const audioUrl = `${this.baseUrl}/convai/conversations/${conversationId}/audio`;
-      
-      console.log(`🎵 URL de audio generada para conversación ${conversationId}: ${audioUrl}`);
+      console.log(`🎵 Descargando audio de conversación ${conversationId} para usuario ${userId}...`);
+
+      // Descargar el audio desde ElevenLabs
+      const response = await axios.get(`${this.baseUrl}/convai/conversations/${conversationId}/audio`, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        },
+        responseType: 'arraybuffer' // Importante para recibir datos binarios
+      });
+
+      console.log(`📡 Audio descargado: ${response.data.byteLength} bytes`);
+
+      // Importar el servicio de storage
+      const storageService = require('../services/storage');
+
+      // Subir el audio a Google Cloud Storage
+      const uploadResult = await storageService.uploadConversationAudio(
+        Buffer.from(response.data),
+        conversationId,
+        userId,
+        {
+          source: 'elevenlabs',
+          originalSize: response.data.byteLength,
+          contentType: response.headers['content-type'] || 'audio/mpeg'
+        }
+      );
+
+      console.log(`✅ Audio subido a GCS exitosamente: ${uploadResult.fileName}`);
 
       return {
         success: true,
         data: {
-          audio_url: audioUrl,
-          conversation_id: conversationId
+          gcs_url: uploadResult.downloadUrl,
+          gcs_file_name: uploadResult.fileName,
+          conversation_id: conversationId,
+          user_id: userId,
+          size: uploadResult.size,
+          uploaded_at: uploadResult.uploadedAt,
+          content_type: uploadResult.contentType
         },
-        message: 'URL de audio generada exitosamente'
+        message: 'Audio descargado y subido a GCS exitosamente'
       };
 
     } catch (error) {
-      console.error(`❌ Error generando URL de audio para conversación ${conversationId}:`, error);
+      console.error(`❌ Error descargando/subiendo audio de conversación ${conversationId}:`, error);
+      let errorMessage = error.message;
+
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
 
       return {
         success: false,
-        error: error.message,
-        message: 'Error al generar URL de audio'
+        error: errorMessage,
+        message: 'Error al descargar/subir audio'
       };
     }
   }
