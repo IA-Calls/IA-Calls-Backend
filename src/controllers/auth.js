@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { sendResponse, sendError, isValidEmail, validateRequired } = require('../utils/helpers');
 const { query } = require('../config/database');
+const { elevenlabsService } = require('../agents');
 
 // Generar token JWT
 const generateToken = (user) => {
@@ -46,13 +47,44 @@ const register = async (req, res) => {
       return sendError(res, 400, 'El username debe tener al menos 3 caracteres');
     }
 
+    // Crear agente conversacional en ElevenLabs
+    let agentId = null;
+    let agentCreationResult = null;
+    
+    try {
+      console.log(`🤖 Creando agente conversacional para usuario: ${username}`);
+      
+      agentCreationResult = await elevenlabsService.createAgent({
+        name: `Agente ${firstName || username}`,
+        tags: ["ia-calls", "usuario", username],
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: `Eres el asistente personal de ${firstName || username} en IA-Calls. Responde preguntas sobre el software IA-Calls y ayuda con tareas relacionadas. Mantén un tono profesional y amigable.`
+            }
+          }
+        }
+      });
+      
+      if (agentCreationResult.success) {
+        agentId = agentCreationResult.agent_id;
+        console.log(`✅ Agente creado exitosamente con ID: ${agentId}`);
+      } else {
+        console.warn(`⚠️ No se pudo crear el agente: ${agentCreationResult.error}`);
+      }
+    } catch (error) {
+      console.error('❌ Error creando agente conversacional:', error);
+      // Continuar con la creación del usuario aunque falle el agente
+    }
+
     // Crear nuevo usuario
     const newUser = await User.create({
       username,
       email,
       password,
       firstName,
-      lastName
+      lastName,
+      agentId
     });
 
     // Generar token
@@ -61,11 +93,23 @@ const register = async (req, res) => {
     // Registrar actividad
     await logActivity(newUser.id, 'register', 'Usuario registrado exitosamente', req);
 
-    // Responder con usuario y token (sin contraseña)
-    sendResponse(res, 201, {
+    // Preparar respuesta
+    const responseData = {
       user: newUser.toJSON(),
       token
-    }, 'Usuario registrado exitosamente');
+    };
+
+    // Agregar información del agente si se creó exitosamente
+    if (agentCreationResult) {
+      responseData.agent = {
+        created: agentCreationResult.success,
+        agent_id: agentId,
+        message: agentCreationResult.message
+      };
+    }
+
+    // Responder con usuario y token (sin contraseña)
+    sendResponse(res, 201, responseData, 'Usuario registrado exitosamente');
 
   } catch (error) {
     console.error('Error en register:', error);

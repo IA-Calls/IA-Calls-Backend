@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const { sendResponse, sendError, isValidEmail, validateRequired } = require('../utils/helpers');
 const { query } = require('../config/database');
+const { elevenlabsService } = require('../agents');
 
 // Obtener todos los usuarios con paginación y filtros
 const getAllUsers = async (req, res) => {
@@ -179,6 +180,36 @@ const createUser = async (req, res) => {
       return sendError(res, 403, 'Solo los administradores pueden crear otros administradores');
     }
 
+    // Crear agente conversacional en ElevenLabs
+    let agentId = null;
+    let agentCreationResult = null;
+    
+    try {
+      console.log(`🤖 Creando agente conversacional para usuario: ${username}`);
+      
+      agentCreationResult = await elevenlabsService.createAgent({
+        name: `Agente ${firstName || username}`,
+        tags: ["ia-calls", "usuario", username, role],
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: `Eres el asistente personal de ${firstName || username} en IA-Calls. Responde preguntas sobre el software IA-Calls y ayuda con tareas relacionadas. El usuario tiene rol de ${role}. Mantén un tono profesional y amigable.`
+            }
+          }
+        }
+      });
+      
+      if (agentCreationResult.success) {
+        agentId = agentCreationResult.agent_id;
+        console.log(`✅ Agente creado exitosamente con ID: ${agentId}`);
+      } else {
+        console.warn(`⚠️ No se pudo crear el agente: ${agentCreationResult.error}`);
+      }
+    } catch (error) {
+      console.error('❌ Error creando agente conversacional:', error);
+      // Continuar con la creación del usuario aunque falle el agente
+    }
+
     // Crear usuario
     const newUser = await User.create({
       username,
@@ -187,13 +218,28 @@ const createUser = async (req, res) => {
       firstName,
       lastName,
       role,
-      time: validatedTime
+      time: validatedTime,
+      agentId
     });
 
     // Registrar actividad
     await logActivity(req.user.id, 'user_created', `Usuario ${username} creado${validatedTime ? ` con fecha límite ${validatedTime}` : ''}`, req, { createdUserId: newUser.id });
 
-    sendResponse(res, 201, newUser.toJSON(), 'Usuario creado exitosamente');
+    // Preparar respuesta
+    const responseData = {
+      ...newUser.toJSON()
+    };
+
+    // Agregar información del agente si se creó
+    if (agentCreationResult) {
+      responseData.agent = {
+        created: agentCreationResult.success,
+        agent_id: agentId,
+        message: agentCreationResult.message
+      };
+    }
+
+    sendResponse(res, 201, responseData, 'Usuario creado exitosamente');
 
   } catch (error) {
     console.error('Error en createUser:', error);

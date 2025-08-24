@@ -12,6 +12,7 @@ class User {
     this.role = userData.role || 'user';
     this.isActive = userData.is_active !== undefined ? userData.is_active : true;
     this.time = userData.time; // Campo opcional para deadline
+    this.agentId = userData.agent_id; // ID del agente conversacional de ElevenLabs
     this.createdAt = userData.created_at;
     this.updatedAt = userData.updated_at;
   }
@@ -19,17 +20,17 @@ class User {
   // Crear usuario
   static async create(userData) {
     try {
-      const { username, email, password, firstName, lastName, role = 'user', time } = userData;
+      const { username, email, password, firstName, lastName, role = 'user', time, agentId } = userData;
       
       // Hashear la contraseña
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(password, saltRounds);
       
       const result = await query(
-        `INSERT INTO "public"."users" (username, email, password, first_name, last_name, role, is_active, time, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+        `INSERT INTO "public"."users" (username, email, password, first_name, last_name, role, is_active, time, agent_id, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
          RETURNING *`,
-        [username, email, hashedPassword, firstName, lastName, role, true, time]
+        [username, email, hashedPassword, firstName, lastName, role, true, time, agentId]
       );
       
       return new User(result.rows[0]);
