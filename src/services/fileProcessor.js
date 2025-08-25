@@ -11,8 +11,22 @@ class FileProcessor {
    */
   static async processFile(base64Data, documentName) {
     try {
+      console.log(`📁 Iniciando procesamiento de archivo: ${documentName}`);
+      
       // Decodificar base64
       const buffer = Buffer.from(base64Data, 'base64');
+      const fileSizeMB = buffer.length / 1024 / 1024;
+      console.log(`📊 Tamaño del archivo: ${fileSizeMB.toFixed(2)} MB`);
+      
+      // Validar tamaño del archivo (máximo 50MB)
+      if (fileSizeMB > 50) {
+        throw new Error(`El archivo es demasiado grande (${fileSizeMB.toFixed(2)} MB). El tamaño máximo permitido es 50 MB.`);
+      }
+      
+      // Validar que el archivo no esté vacío
+      if (buffer.length === 0) {
+        throw new Error('El archivo está vacío o corrupto.');
+      }
       
       // Leer el archivo Excel
       const workbook = XLSX.read(buffer, { type: 'buffer' });
@@ -21,6 +35,17 @@ class FileProcessor {
       
       // Convertir a JSON
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      console.log(`📋 Total de filas en el archivo: ${jsonData.length}`);
+      
+      // Validar que el archivo tenga datos
+      if (jsonData.length < 2) {
+        throw new Error('El archivo Excel debe tener al menos una fila de encabezados y una fila de datos.');
+      }
+      
+      // Validar número máximo de filas (máximo 100,000 filas)
+      if (jsonData.length > 100000) {
+        throw new Error(`El archivo tiene demasiadas filas (${jsonData.length}). El máximo permitido es 100,000 filas.`);
+      }
       
       // Extraer encabezados (primera fila)
       const headers = jsonData[0] || [];
@@ -37,8 +62,21 @@ class FileProcessor {
       
       // Procesar datos (excluyendo la fila de encabezados)
       const clientsData = [];
+      const totalRows = jsonData.length - 1; // Excluir encabezados
+      let processedRows = 0;
+      let validClients = 0;
+      
+      console.log(`🔄 Procesando ${totalRows} filas de datos...`);
+      
       for (let i = 1; i < jsonData.length; i++) {
         const row = jsonData[i];
+        processedRows++;
+        
+        // Log de progreso cada 100 filas
+        if (processedRows % 100 === 0) {
+          console.log(`📈 Progreso: ${processedRows}/${totalRows} filas procesadas (${validClients} clientes válidos)`);
+        }
+        
         if (row && row.length > 0) {
           const clientData = {
             name: this.cleanValue(row[nameIndex]),
@@ -57,11 +95,15 @@ class FileProcessor {
           // Solo agregar si tiene nombre y teléfono válidos
           if (clientData.name && clientData.phone) {
             clientsData.push(clientData);
+            validClients++;
           }
         }
       }
       
+      console.log(`✅ Procesamiento completado: ${validClients} clientes válidos de ${totalRows} filas`);
+      
       // Generar archivo Excel con los datos procesados
+      console.log(`📄 Generando archivo Excel procesado...`);
       const processedWorkbook = XLSX.utils.book_new();
       const processedWorksheet = XLSX.utils.json_to_sheet(clientsData);
       XLSX.utils.book_append_sheet(processedWorkbook, processedWorksheet, 'Clientes Procesados');
@@ -72,18 +114,22 @@ class FileProcessor {
       
       // Generar buffer del archivo Excel
       const excelBuffer = XLSX.write(processedWorkbook, { type: 'buffer', bookType: 'xlsx' });
+      console.log(`📊 Archivo Excel generado: ${(excelBuffer.length / 1024 / 1024).toFixed(2)} MB`);
       
       // Convertir a base64 para subir a GCP
-      const base64Data = excelBuffer.toString('base64');
+      const processedBase64Data = excelBuffer.toString('base64');
       
       // Subir a GCP usando la función de helpers
+      console.log(`☁️ Subiendo archivo a Google Cloud Storage...`);
       const { uploadDocumentToGCP } = require('../utils/helpers');
-      const uploadResult = await uploadDocumentToGCP(base64Data, fileName, {
+      const uploadResult = await uploadDocumentToGCP(processedBase64Data, fileName, {
         documentType: 'processed_excel',
         source: 'file_processor',
         totalClients: clientsData.length,
         originalDocument: documentName
       });
+      
+      console.log(`✅ Archivo subido exitosamente a GCP: ${uploadResult.fileName}`);
       
       return {
         success: true,
@@ -98,7 +144,24 @@ class FileProcessor {
       };
       
     } catch (error) {
-      console.error('Error procesando archivo:', error);
+      console.error('❌ Error procesando archivo:', error);
+      
+      // Manejo específico de errores para archivos grandes
+      if (error.message.includes('Cannot access') || error.message.includes('before initialization')) {
+        console.error('🔧 Error de inicialización de variables detectado');
+        throw new Error('Error interno del procesador de archivos. Por favor, intente nuevamente.');
+      }
+      
+      if (error.message.includes('memory') || error.message.includes('heap')) {
+        console.error('💾 Error de memoria detectado - archivo muy grande');
+        throw new Error('El archivo es demasiado grande para procesar. Intente con un archivo más pequeño o divida el archivo en partes.');
+      }
+      
+      if (error.message.includes('timeout')) {
+        console.error('⏰ Error de timeout detectado');
+        throw new Error('El procesamiento del archivo tardó demasiado tiempo. Intente con un archivo más pequeño.');
+      }
+      
       throw new Error(`Error procesando archivo: ${error.message}`);
     }
   }

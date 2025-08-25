@@ -113,13 +113,31 @@ const getGroupById = async (req, res) => {
 // Crear nuevo grupo
 const createGroup = async (req, res) => {
   try {
-    const { name, description, prompt, color, favorite, idioma, variables, base64, document_name, clientId } = req.body;
+    const { 
+      name, 
+      description, 
+      prompt, 
+      color, 
+      favorite, 
+      idioma, 
+      variables, 
+      base64, 
+      document_name, 
+      clientId,
+      prefix,
+      selectedCountryCode,
+      firstMessage,
+      phoneNumberId
+    } = req.body;
     const { logActivity } = require('../utils/helpers');
     
     console.log('📋 Datos recibidos en createGroup:');
     console.log('   - clientId del body:', clientId);
     console.log('   - req.user?.id:', req.user?.id);
     console.log('   - document_name:', document_name);
+    console.log('   - prefix:', prefix);
+    console.log('   - selectedCountryCode:', selectedCountryCode);
+    console.log('   - phoneNumberId:', phoneNumberId);
     
     // Usar clientId del body o del usuario autenticado
     const createdBy = parseInt(clientId) || req.user?.id;
@@ -149,7 +167,11 @@ const createGroup = async (req, res) => {
       idioma: idioma || 'es',
       variables: variables || {},
       createdBy,
-      createdByClient: createdBy // Usar el mismo ID para ambos campos
+      createdByClient: createdBy, // Usar el mismo ID para ambos campos
+      prefix: prefix || '+57',
+      selectedCountryCode: selectedCountryCode || 'CO',
+      firstMessage,
+      phoneNumberId
     };
 
     // Crear el grupo
@@ -608,11 +630,31 @@ const prepareAgent = async (req, res) => {
     }
 
     console.log(`🤖 Preparando agente ${user.agentId} para el grupo "${group.name}"`);
+    console.log(`📝 First Message del grupo: ${group.firstMessage || 'No configurado'}`);
 
     // Construir el prompt personalizado con información del grupo
     const customPrompt = buildGroupPrompt(group, user);
 
     console.log('📋 Prompt personalizado:', customPrompt);
+
+    // Preparar configuración del agente
+    const agentConfig = {
+      language: group.idioma || "es",
+      prompt: {
+        prompt: customPrompt,
+        llm: "gpt-4o-mini", // LLM requerido
+        temperature: 0.7,   // Temperatura por defecto
+        max_tokens: 1000    // Tokens máximos por defecto
+      }
+    };
+
+    // Agregar first_message si está configurado en el grupo
+    if (group.firstMessage && group.firstMessage.trim() !== '') {
+      agentConfig.first_message = group.firstMessage.trim();
+      console.log(`✅ Agregando first_message: "${group.firstMessage}"`);
+    } else {
+      console.log(`ℹ️ No se configuró first_message en el grupo`);
+    }
 
     // Actualizar el agente en ElevenLabs con payload correcto
     const updateData = {
@@ -624,15 +666,7 @@ const prepareAgent = async (req, res) => {
         conversation: {
           text_only: false
         },
-        agent: {
-          language: group.idioma || "es",
-          prompt: {
-            prompt: customPrompt,
-            llm: "gpt-4o-mini", // LLM requerido
-            temperature: 0.7,   // Temperatura por defecto
-            max_tokens: 1000    // Tokens máximos por defecto
-          }
-        }
+        agent: agentConfig
       },
       name: `Agente ${user.firstName || user.username} - ${group.name}`,
       tags: [
@@ -657,6 +691,8 @@ const prepareAgent = async (req, res) => {
           groupId: group.id,
           groupName: group.name,
           customPrompt: customPrompt,
+          firstMessage: group.firstMessage || null,
+          hasFirstMessage: !!(group.firstMessage && group.firstMessage.trim() !== ''),
           updatedAgent: updateResult.data
         }
       });
@@ -878,15 +914,7 @@ const startBatchCall = async (req, res) => {
       });
     }
 
-    if (!agentPhoneNumberId) {
-      console.error('❌ Error: agentPhoneNumberId no proporcionado');
-      return res.status(400).json({
-        success: false,
-        message: 'ID del número telefónico del agente es requerido'
-      });
-    }
-
-    // Obtener el grupo
+    // Obtener el grupo primero para verificar si tiene phoneNumberId configurado
     console.log(`🔍 Buscando grupo con ID: ${id}`);
     const group = await Group.findById(id);
     if (!group) {
@@ -897,6 +925,21 @@ const startBatchCall = async (req, res) => {
       });
     }
     console.log(`✅ Grupo encontrado: "${group.name}"`);
+    console.log(`📱 Phone Number ID del grupo: ${group.phoneNumberId || 'No configurado'}`);
+
+    // Usar el phoneNumberId del grupo si está disponible, sino el del body
+    const finalPhoneNumberId = group.phoneNumberId || agentPhoneNumberId;
+    
+    if (!finalPhoneNumberId) {
+      console.error('❌ Error: No se proporcionó agentPhoneNumberId y el grupo no tiene phoneNumberId configurado');
+      return res.status(400).json({
+        success: false,
+        message: 'ID del número telefónico del agente es requerido (en el body o configurado en el grupo)'
+      });
+    }
+
+    // El grupo ya fue obtenido anteriormente, no necesitamos buscarlo de nuevo
+    console.log(`✅ Usando grupo ya obtenido: "${group.name}"`);
 
     // Obtener el usuario para acceder a su agente
     console.log(`🔍 Buscando usuario con ID: ${userId}`);
@@ -949,18 +992,25 @@ const startBatchCall = async (req, res) => {
         // Remover caracteres no numéricos excepto el +
         phoneNumber = phoneNumber.replace(/[^\d+]/g, '');
         
-        // Si no tiene código de país, agregar +57 (Colombia)
+        // Usar el prefijo del grupo en lugar del +57 quemado
+        const groupPrefix = group.prefix || '+57';
+        const countryCode = group.selectedCountryCode || 'CO';
+        
+        console.log(`🌍 Usando prefijo del grupo: ${groupPrefix} (${countryCode})`);
+        
+        // Si no tiene código de país, agregar el prefijo del grupo
         if (!phoneNumber.startsWith('+')) {
-          // Si empieza con 57, agregar solo el +
-          if (phoneNumber.startsWith('57')) {
+          // Si empieza con el código de país sin +, agregar solo el +
+          const prefixWithoutPlus = groupPrefix.replace('+', '');
+          if (phoneNumber.startsWith(prefixWithoutPlus)) {
             phoneNumber = '+' + phoneNumber;
           } else {
-            // Si no tiene código de país, agregar +57
-            phoneNumber = '+57' + phoneNumber;
+            // Si no tiene código de país, agregar el prefijo del grupo
+            phoneNumber = groupPrefix + phoneNumber;
           }
         }
         
-        console.log(`📱 Número formateado: ${client.phone} → ${phoneNumber}`);
+        console.log(`📱 Número formateado: ${client.phone} → ${phoneNumber} (prefijo: ${groupPrefix})`);
         
         return {
           phone_number: phoneNumber,
@@ -990,7 +1040,7 @@ const startBatchCall = async (req, res) => {
     const batchData = {
       callName: `Llamada ${group.name} - ${new Date().toLocaleDateString('es-ES')}`,
       agentId: user.agentId,
-      agentPhoneNumberId: agentPhoneNumberId,
+      agentPhoneNumberId: finalPhoneNumberId,
       recipients: recipients,
       scheduledTimeUnix: scheduledTimeUnix
     };
@@ -998,7 +1048,7 @@ const startBatchCall = async (req, res) => {
     console.log(`🚀 Preparando batch call con datos:`);
     console.log(`   📞 Nombre: ${batchData.callName}`);
     console.log(`   🤖 Agente ID: ${batchData.agentId}`);
-    console.log(`   📱 Phone Number ID: ${batchData.agentPhoneNumberId}`);
+    console.log(`   📱 Phone Number ID: ${batchData.agentPhoneNumberId} (${group.phoneNumberId ? 'del grupo' : 'del body'})`);
     console.log(`   👥 Destinatarios: ${batchData.recipients.length}`);
     console.log(`   ⏰ Programado: ${batchData.scheduledTimeUnix || 'Inmediato'}`);
 
@@ -1016,7 +1066,7 @@ const startBatchCall = async (req, res) => {
         
         // FLUJO OPTIMIZADO: Guardar directamente en la tabla groups
         await group.startBatchCall(batchId, recipients.length, {
-          agent_phone_number_id: agentPhoneNumberId,
+          agent_phone_number_id: finalPhoneNumberId,
           scheduled_time_unix: scheduledTimeUnix,
           elevenlabs_response: batchResult.data,
           call_name: batchData.callName,

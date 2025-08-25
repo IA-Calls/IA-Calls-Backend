@@ -4,7 +4,51 @@ const { elevenlabsService } = require('../agents');
 const { authenticate } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/authorize');
 
-// Middleware para autenticación en todas las rutas
+// GET /api/agents/phone-numbers - Obtener números de teléfono disponibles (SIN AUTENTICACIÓN)
+router.get('/phone-numbers', async (req, res) => {
+  try {
+    console.log('📞 === SOLICITUD DE NÚMEROS DE TELÉFONO ===');
+    console.log('👤 Usuario: Acceso público (sin autenticación)');
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    const result = await elevenlabsService.getPhoneNumbers();
+
+    if (result.success) {
+      console.log(`✅ Números obtenidos exitosamente: ${result.count} números disponibles`);
+      
+      return res.status(200).json({
+        success: true,
+        message: result.message,
+        data: {
+          phoneNumbers: result.phoneNumbers,
+          count: result.count,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } else {
+      console.error('❌ Error obteniendo números:', result.error);
+      
+      return res.status(500).json({
+        success: false,
+        message: result.message,
+        error: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error inesperado en getPhoneNumbers:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al obtener números de teléfono',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Middleware para autenticación en todas las demás rutas
 router.use(authenticate);
 
 // GET /api/agents/test - Probar conexión con ElevenLabs

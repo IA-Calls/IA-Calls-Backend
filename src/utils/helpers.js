@@ -71,6 +71,24 @@ const uploadDocumentToGCP = async (base64Data, fileName, metadata = {}) => {
     const crypto = require('crypto');
     const path = require('path');
 
+    // Validar variables de entorno requeridas
+    const requiredEnvVars = [
+      'GOOGLE_CLOUD_PROJECT_ID',
+      'GOOGLE_CLOUD_PRIVATE_KEY_ID',
+      'GOOGLE_CLOUD_PRIVATE_KEY',
+      'GOOGLE_CLOUD_CLIENT_EMAIL',
+      'GOOGLE_CLOUD_CLIENT_ID',
+      'GOOGLE_CLOUD_AUTH_URI',
+      'GOOGLE_CLOUD_TOKEN_URI',
+      'GOOGLE_CLOUD_AUTH_PROVIDER_X509_CERT_URL',
+      'GOOGLE_CLOUD_CLIENT_X509_CERT_URL'
+    ];
+
+    const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    if (missingVars.length > 0) {
+      throw new Error(`Variables de entorno faltantes para GCP: ${missingVars.join(', ')}`);
+    }
+
     // Crear credenciales desde variables de entorno
     const credentials = {
       type: 'service_account',

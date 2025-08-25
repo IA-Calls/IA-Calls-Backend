@@ -11,6 +11,62 @@ class ElevenLabsService {
   }
 
   /**
+   * Obtener números de teléfono disponibles en ElevenLabs
+   * @returns {Promise<Object>} - Lista de números de teléfono disponibles
+   */
+  async getPhoneNumbers() {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log('📞 Obteniendo números de teléfono disponibles en ElevenLabs...');
+
+      const response = await axios.get(`${this.baseUrl}/convai/phone-numbers`, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      console.log(`📊 Números encontrados: ${response.data?.length || 0}`);
+
+      return {
+        success: true,
+        phoneNumbers: response.data,
+        count: response.data?.length || 0,
+        message: 'Números de teléfono obtenidos exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error obteniendo números de teléfono de ElevenLabs:', error);
+      
+      let errorMessage = error.message;
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+      
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error obteniendo números de teléfono'
+      };
+    }
+  }
+
+  /**
    * Crear un agente conversacional en ElevenLabs
    * @param {Object} options - Opciones para personalizar el agente
    * @returns {Promise<Object>} - Respuesta con el agent_id creado
