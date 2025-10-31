@@ -399,6 +399,52 @@ const getUserActivityLogs = async (userId, options = {}) => {
   }
 };
 
+// Función para guardar archivos localmente en desarrollo
+const saveDocumentLocally = async (base64Data, fileName, metadata = {}) => {
+  try {
+    const fs = require('fs').promises;
+    const path = require('path');
+    
+    // Crear directorio si no existe
+    const uploadsDir = path.join(process.cwd(), 'uploads', 'local-documents');
+    await fs.mkdir(uploadsDir, { recursive: true });
+    
+    // Generar nombre único para el archivo
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileExtension = path.extname(fileName);
+    const baseName = path.basename(fileName, fileExtension);
+    const uniqueFileName = `${baseName}_${timestamp}${fileExtension}`;
+    
+    // Ruta completa del archivo
+    const filePath = path.join(uploadsDir, uniqueFileName);
+    
+    // Convertir base64 a buffer y guardar
+    const buffer = Buffer.from(base64Data, 'base64');
+    await fs.writeFile(filePath, buffer);
+    
+    console.log(`📁 Archivo guardado localmente: ${filePath}`);
+    console.log(`📊 Tamaño: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+    
+    // URL local para desarrollo
+    const localUrl = `http://localhost:${process.env.PORT || 5000}/uploads/local-documents/${uniqueFileName}`;
+    
+    return {
+      success: true,
+      fileName: uniqueFileName,
+      originalName: fileName,
+      localPath: filePath,
+      localUrl: localUrl,
+      size: buffer.length,
+      uploadedAt: new Date().toISOString(),
+      environment: 'local'
+    };
+
+  } catch (error) {
+    console.error('Error guardando documento localmente:', error);
+    throw new Error(`Error guardando documento localmente: ${error.message}`);
+  }
+};
+
 // Función para limpiar logs antiguos
 const cleanOldActivityLogs = async (daysToKeep = 90) => {
   try {
@@ -427,6 +473,7 @@ module.exports = {
   formatDate,
   validateRequired,
   uploadDocumentToGCP,
+  saveDocumentLocally,
   generateAndUploadExcel,
   logActivity,
   getUserActivityLogs,

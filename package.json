@@ -6,8 +6,13 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "setup": "node scripts/setup.js",
     "migrate": "node scripts/migrate.js",
     "migrate:agent-id": "node scripts/migration.js",
+    "test:db": "node scripts/test-db.js",
+    "test:whatsapp": "node scripts/test-whatsapp-api.js",
+    "test:whatsapp-endpoint": "node scripts/test-whatsapp-endpoint.js",
+    "test:vonage-direct": "node scripts/test-vonage-direct.js",
     "test:logging": "node scripts/test-logging.js"
   },
   "dependencies": {
@@ -25,6 +30,8 @@
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.10",
     "pg": "^8.16.3",
+    "twilio": "^5.10.4",
+    "ws": "^8.18.3",
     "xlsx": "^0.18.5"
   },
   "engines": {

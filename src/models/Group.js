@@ -54,14 +54,14 @@ class Group {
       
       const result = await query(
         `INSERT INTO "public"."groups" (
-          name, description, prompt, color, favorite, created_by, "created-by", 
+          name, description, prompt, color, favorite, created_by, 
           idioma, variables, is_active, created_at, updated_at,
           prefix, selected_country_code, first_message, phone_number_id
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), $11, $12, $13, $14)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13)
          RETURNING *`,
         [
-          name, description, prompt, color, favorite, createdBy, createdByClient, 
+          name, description, prompt, color, favorite, createdBy, 
           idioma, JSON.stringify(variables), true,
           prefix, selectedCountryCode, firstMessage, phoneNumberId
         ]

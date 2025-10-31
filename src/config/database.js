@@ -2,26 +2,45 @@ const { Pool } = require('pg');
 const dotenv = require('dotenv');
 dotenv.config();
 
-// Configuración para PostgreSQL en GCP
-const dbConfig = {
-  host: process.env.DB_HOST, // IP externa o privada de Cloud SQL
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  
-  // Configuración específica para GCP Cloud SQL
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  
-  // Pool de conexiones optimizado para GCP
-  max: 10, // máximo número de conexiones
-  idleTimeoutMillis: 30000, // 30 segundos
-  connectionTimeoutMillis: 10000, // 10 segundos para conectar
-  
-  // ---------nfiguración adicional para GCP
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10000,
-};
+// Detectar si estamos en entorno local o producción
+const isLocal = process.env.NODE_ENV !== 'production' && !process.env.DB_HOST;
+
+// Configuración para PostgreSQL
+let dbConfig;
+
+if (process.env.DATABASE_LOCAL_URL) {
+  // Usar URL de conexión directa si está disponible
+  dbConfig = {
+    connectionString: process.env.DATABASE_LOCAL_URL,
+    ssl: false,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+  };
+} else {
+  // Configuración tradicional por variables individuales
+  dbConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || 'ia-calls',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'moon@1014198153',
+    
+    // SSL solo en producción (GCP Cloud SQL)
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    
+    // Pool de conexiones optimizado
+    max: isLocal ? 5 : 10, // Menos conexiones en local
+    idleTimeoutMillis: 30000, // 30 segundos
+    connectionTimeoutMillis: isLocal ? 5000 : 10000, // Menos timeout en local
+    
+    // Configuración adicional
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+  };
+}
 
 // Crear pool de conexiones
 const pool = new Pool(dbConfig);
@@ -37,10 +56,11 @@ const connectDB = async () => {
     // Probar conexión obteniendo un cliente del pool
     const client = await pool.connect();
     
-    console.log('📊 Conexión a PostgreSQL (GCP) establecida');
+    console.log(`📊 Conexión a PostgreSQL ${isLocal ? '(LOCAL)' : '(GCP)'} establecida`);
     console.log(`📍 Base de datos: ${dbConfig.database}`);
     console.log(`🌐 Host: ${dbConfig.host}:${dbConfig.port}`);
     console.log(`🔐 SSL: ${dbConfig.ssl ? 'Habilitado' : 'Deshabilitado'}`);
+    console.log(`🏠 Entorno: ${isLocal ? 'Desarrollo Local' : 'Producción'}`);
     
     // Probar la conexión con una query simple
     const result = await client.query('SELECT NOW() as server_time, version() as version');
@@ -52,7 +72,7 @@ const connectDB = async () => {
     
     return true;
   } catch (error) {
-    console.error('❌ Error conectando a PostgreSQL (GCP):', error.message);
+    console.error(`❌ Error conectando a PostgreSQL ${isLocal ? '(LOCAL)' : '(GCP)'}:`, error.message);
     console.error('🔍 Detalles del error:', {
       code: error,
       host: dbConfig.host,

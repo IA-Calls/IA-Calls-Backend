@@ -119,25 +119,40 @@ class FileProcessor {
       // Convertir a base64 para subir a GCP
       const processedBase64Data = excelBuffer.toString('base64');
       
-      // Subir a GCP usando la función de helpers
-      console.log(`☁️ Subiendo archivo a Google Cloud Storage...`);
-      const { uploadDocumentToGCP } = require('../utils/helpers');
-      const uploadResult = await uploadDocumentToGCP(processedBase64Data, fileName, {
-        documentType: 'processed_excel',
-        source: 'file_processor',
-        totalClients: clientsData.length,
-        originalDocument: documentName
-      });
-      
-      console.log(`✅ Archivo subido exitosamente a GCP: ${uploadResult.fileName}`);
+      // Subir archivo según el entorno
+      let uploadResult;
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`☁️ Subiendo archivo a Google Cloud Storage...`);
+        const { uploadDocumentToGCP } = require('../utils/helpers');
+        uploadResult = await uploadDocumentToGCP(processedBase64Data, fileName, {
+          documentType: 'processed_excel',
+          source: 'file_processor',
+          totalClients: clientsData.length,
+          originalDocument: documentName
+        });
+        console.log(`✅ Archivo subido exitosamente a GCP: ${uploadResult.fileName}`);
+      } else {
+        console.log(`📁 Guardando archivo localmente (desarrollo)...`);
+        const { saveDocumentLocally } = require('../utils/helpers');
+        uploadResult = await saveDocumentLocally(processedBase64Data, fileName, {
+          documentType: 'processed_excel',
+          source: 'file_processor',
+          totalClients: clientsData.length,
+          originalDocument: documentName
+        });
+        console.log(`✅ Archivo guardado localmente: ${uploadResult.fileName}`);
+      }
       
       return {
         success: true,
         clientsData,
         processedFile: {
           fileName: uploadResult.fileName,
-          gcsUrl: uploadResult.publicUrl,
-          downloadUrl: uploadResult.downloadUrl,
+          gcsUrl: uploadResult.publicUrl || uploadResult.localUrl,
+          downloadUrl: uploadResult.downloadUrl || uploadResult.localUrl,
+          localUrl: uploadResult.localUrl,
+          localPath: uploadResult.localPath,
+          environment: uploadResult.environment || 'production',
           totalClients: clientsData.length,
           uploadedAt: uploadResult.uploadedAt
         }

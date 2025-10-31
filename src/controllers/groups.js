@@ -151,6 +151,16 @@ const createGroup = async (req, res) => {
       });
     }
 
+    // Verificar si el ID existe en la tabla de usuarios
+    const User = require('../models/User');
+    const userExists = await User.findById(createdBy);
+    if (!userExists) {
+      return res.status(400).json({
+        success: false,
+        message: 'El usuario especificado no existe'
+      });
+    }
+
     if (!name) {
       return res.status(400).json({
         success: false,
@@ -166,8 +176,8 @@ const createGroup = async (req, res) => {
       favorite: favorite || false,
       idioma: idioma || 'es',
       variables: variables || {},
-      createdBy,
-      createdByClient: createdBy, // Usar el mismo ID para ambos campos
+      createdBy, // ID del usuario que crea el grupo
+      createdByClient: null, // No hay cliente asociado inicialmente
       prefix: prefix || '+57',
       selectedCountryCode: selectedCountryCode || 'CO',
       firstMessage,
@@ -208,19 +218,32 @@ const createGroup = async (req, res) => {
             // Agregar clientes creados a la respuesta
             createdClients = newClients.map(client => client.toJSON());
 
-            // Subir archivo original a GCP
+            // Subir archivo original según el entorno
             try {
-              const { uploadDocumentToGCP } = require('../utils/helpers');
+              const { uploadDocumentToGCP, saveDocumentLocally } = require('../utils/helpers');
               const GCPDocument = require('../models/GCPDocument');
               
-              gcpUploadResult = await uploadDocumentToGCP(base64, document_name, {
-                groupId: groupId,
-                groupName: name,
-                totalClients: newClients.length,
-                documentType: 'original_upload',
-                source: 'group_creation',
-                processedClients: newClients.length
-              });
+              if (process.env.NODE_ENV === 'production') {
+                console.log('☁️ Subiendo archivo original a GCP...');
+                gcpUploadResult = await uploadDocumentToGCP(base64, document_name, {
+                  groupId: groupId,
+                  groupName: name,
+                  totalClients: newClients.length,
+                  documentType: 'original_upload',
+                  source: 'group_creation',
+                  processedClients: newClients.length
+                });
+              } else {
+                console.log('📁 Guardando archivo original localmente...');
+                gcpUploadResult = await saveDocumentLocally(base64, document_name, {
+                  groupId: groupId,
+                  groupName: name,
+                  totalClients: newClients.length,
+                  documentType: 'original_upload',
+                  source: 'group_creation',
+                  processedClients: newClients.length
+                });
+              }
               
               console.log('💾 Guardando documento original en BD con uploadedBy:', createdBy);
               
@@ -304,8 +327,9 @@ const createGroup = async (req, res) => {
     console.error('Error creando grupo:', error);
     
     // Registrar log de error
-    if (createdBy) {
-      await logActivity(createdBy, 'create_group_error', `Error creando grupo "${name}"`, req, {
+    const errorCreatedBy = parseInt(clientId) || req.user?.id;
+    if (errorCreatedBy) {
+      await logActivity(errorCreatedBy, 'create_group_error', `Error creando grupo "${name || 'sin nombre'}"`, req, {
         error: error.message,
         groupName: name
       });
@@ -926,16 +950,43 @@ const startBatchCall = async (req, res) => {
     }
     console.log(`✅ Grupo encontrado: "${group.name}"`);
     console.log(`📱 Phone Number ID del grupo: ${group.phoneNumberId || 'No configurado'}`);
+    console.log(`📱 Phone Number ID del body: ${agentPhoneNumberId || 'No proporcionado'}`);
 
-    // Usar el phoneNumberId del grupo si está disponible, sino el del body
-    const finalPhoneNumberId = group.phoneNumberId || agentPhoneNumberId;
+    // Usar el phone_number_id del grupo si está disponible, sino el del body
+    let finalPhoneNumberId = group.phoneNumberId || agentPhoneNumberId;
     
+    // Si hay un phone_number_id, loggearlo para debugging
+    if (finalPhoneNumberId) {
+      console.log(`📱 Phone Number ID final a usar: ${finalPhoneNumberId}`);
+    }
+    
+    // Si no hay phoneNumberId, obtener uno disponible de ElevenLabs
     if (!finalPhoneNumberId) {
-      console.error('❌ Error: No se proporcionó agentPhoneNumberId y el grupo no tiene phoneNumberId configurado');
-      return res.status(400).json({
-        success: false,
-        message: 'ID del número telefónico del agente es requerido (en el body o configurado en el grupo)'
-      });
+      console.log('⚠️ No se proporcionó phoneNumberId, obteniendo uno disponible de ElevenLabs...');
+      try {
+        const phoneResult = await elevenlabsService.getPhoneNumbers();
+        if (phoneResult.success && phoneResult.phoneNumbers && phoneResult.phoneNumbers.length > 0) {
+          // Obtener el phone_number_id usando el campo normalizado
+          const selectedPhone = phoneResult.phoneNumbers[0];
+          finalPhoneNumberId = selectedPhone.phone_number_id || selectedPhone.id;
+          
+          console.log(`📋 Estructura del número seleccionado:`, JSON.stringify(selectedPhone, null, 2));
+          console.log(`✅ Usando número disponible con ID: ${finalPhoneNumberId}`);
+          
+          // Actualizar el grupo con el phoneNumberId obtenido
+          await group.update({ phoneNumberId: finalPhoneNumberId });
+          console.log(`💾 Grupo actualizado con phoneNumberId: ${finalPhoneNumberId}`);
+        } else {
+          throw new Error('No hay números de teléfono disponibles en ElevenLabs');
+        }
+      } catch (phoneError) {
+        console.error('❌ Error obteniendo números de ElevenLabs:', phoneError);
+        return res.status(400).json({
+          success: false,
+          message: 'No hay números de teléfono disponibles. Por favor, configura un phoneNumberId.',
+          error: phoneError.message
+        });
+      }
     }
 
     // El grupo ya fue obtenido anteriormente, no necesitamos buscarlo de nuevo
@@ -1122,12 +1173,27 @@ const startBatchCall = async (req, res) => {
 // Consultar estado de un batch call (FLUJO OPTIMIZADO)
 const getBatchCallStatus = async (req, res) => {
   try {
-    const { batchId } = req.params;
+    const { batchId, id } = req.params; // id es opcional (para rutas con grupo)
     const { userId } = req.query; // Permitir pasar userId como query parameter
 
     console.log(`📊 Consultando estado del batch call: ${batchId}`);
+    if (id) {
+      console.log(`📋 Grupo especificado: ${id}`);
+    }
     if (userId) {
       console.log(`👤 Usuario especificado para audios: ${userId}`);
+    }
+
+    // Si se especifica un grupo, verificar que existe
+    let group = null;
+    if (id) {
+      group = await Group.findById(id);
+      if (!group) {
+        return res.status(404).json({
+          success: false,
+          message: 'Grupo no encontrado'
+        });
+      }
     }
 
     const statusResult = await elevenlabsService.getBatchCallStatus(batchId);
@@ -1137,22 +1203,32 @@ const getBatchCallStatus = async (req, res) => {
       
       // FLUJO OPTIMIZADO: Sincronizar automáticamente con la tabla groups
       try {
-        const group = await Group.findByBatchId(batchId);
-        if (group) {
-          console.log(`📝 Sincronizando estado con grupo ${group.id}`);
-          await group.updateBatchStatus(statusResult.data);
+        const groupToSync = group || await Group.findByBatchId(batchId);
+        if (groupToSync) {
+          console.log(`📝 Sincronizando estado con grupo ${groupToSync.id}`);
+          await groupToSync.updateBatchStatus(statusResult.data);
         }
       } catch (syncError) {
         console.error('⚠️ Error sincronizando con grupo (no crítico):', syncError);
       }
       
-      // Enriquecer datos con transcripciones y audios
-      const enrichedData = await enrichBatchCallData(statusResult.data, userId);
+      // Preparar datos de respuesta
+      const responseData = {
+        ...statusResult.data,
+        environment: statusResult.environment || 'production',
+        timestamp: new Date().toISOString()
+      };
+      
+      // Si se especificó un grupo, incluir información adicional
+      if (group) {
+        responseData.groupId = id;
+        responseData.groupName = group.name;
+      }
       
       res.json({
         success: true,
         message: 'Estado del batch call obtenido exitosamente',
-        data: enrichedData
+        data: responseData
       });
     } else {
       res.status(400).json({
@@ -1854,22 +1930,18 @@ module.exports = {
   getClientInGroup,
   downloadProcessedFile,
   prepareAgent,
-  // Batch calling functions
   startBatchCall,
-  getBatchCallStatus,
-  getBatchCallStatusSSE,
-  listBatchCalls,
-  retryBatchCall,
-  cancelBatchCall,
-  // Audio management functions
-  listUserConversationAudios,
-  generateAudioDownloadUrl,
-  // Call tracking functions
   getGroupCallHistory,
   getClientCallHistory,
   checkClientCallStatus,
   getGroupCallStats,
+  getGroupBatchStatus,
+  getBatchCallStatus,
+  getBatchCallStatusSSE,
   getUncalledClients,
-  // Optimized flow functions
-  getGroupBatchStatus
+  listBatchCalls,
+  retryBatchCall,
+  cancelBatchCall,
+  listUserConversationAudios,
+  generateAudioDownloadUrl
 }; 

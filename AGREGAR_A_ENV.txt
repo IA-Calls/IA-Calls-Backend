@@ -1,0 +1,33 @@
+================================================
+🔥 PROBLEMA ENCONTRADO - FALTA CONFIGURACIÓN
+================================================
+
+En tu archivo .env FALTA esto (por eso no funciona WhatsApp):
+
+# Twilio WhatsApp
+TWILIO_ACCOUNT_SID=AC332953b4c00211a282b4c59d45faf749
+TWILIO_AUTH_TOKEN=cfd6638b2384981c48edfe84835219da
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+
+# Para tests
+TEST_PHONE_NUMBER=+573138539155
+
+================================================
+PASOS PARA SOLUCIONAR:
+================================================
+
+1. Abre tu archivo .env
+
+2. Agrega las líneas de arriba
+
+3. Guarda el archivo
+
+4. Reinicia el servidor:
+   Ctrl+C (detener)
+   npm run dev (iniciar)
+
+5. Ejecuta el test:
+   node scripts/test-llamada-completa.js
+
+================================================
+

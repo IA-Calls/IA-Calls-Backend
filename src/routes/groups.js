@@ -18,6 +18,7 @@ router.get('/:id/call-history', groupsController.getGroupCallHistory);
 router.get('/:id/call-stats', groupsController.getGroupCallStats);
 router.get('/:id/uncalled-clients', groupsController.getUncalledClients);
 router.get('/:id/batch-status', groupsController.getGroupBatchStatus); // FLUJO OPTIMIZADO
+router.get('/:id/batch-status/:batchId', groupsController.getBatchCallStatus); // Estado específico de batch
 
 // Rutas de grupos
 router.get('/', groupsController.getGroups);

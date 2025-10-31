@@ -63,6 +63,12 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Servir archivos estáticos
 app.use('/public', express.static(path.join(__dirname, '../public')));
 
+// Servir archivos locales en desarrollo
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+  console.log('📁 Servidor de archivos locales habilitado: /uploads');
+}
+
 // Función para obtener clientes pendientes sin filtro
 const getPendingClients = async (req, res) => {
   const { page = 1, limit = 5 } = req.query;
@@ -801,6 +807,10 @@ app.post('/clients/upload-excel', async (req, res) => {
 });
 
 
+// Rutas de webhook (ANTES de /api, sin autenticación, para Twilio)
+const webhookRoutes = require('./routes/webhook');
+app.use('/webhook', webhookRoutes);
+
 // Rutas principales
 app.use('/api', indexRoutes);
 
@@ -816,6 +826,20 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     status: 'running',
     timestamp: new Date().toISOString()
+  });
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    services: {
+      database: 'connected',
+      monitoring: 'active',
+      whatsapp: 'configured'
+    }
   });
 });
 
@@ -941,5 +965,20 @@ app.use((err, req, res, next) => {
     message: process.env.NODE_ENV === 'development' ? err.message : 'Algo salió mal'
   });
 });
+
+// ============================================
+// INICIAR SERVICIOS DE FONDO
+// ============================================
+
+// Iniciar el servicio de monitoreo de llamadas
+try {
+  const BatchMonitoringService = require('./services/batchMonitoringService');
+  const batchMonitoringService = new BatchMonitoringService();
+  batchMonitoringService.start();
+  
+  console.log('✅ Servicio de monitoreo de llamadas iniciado');
+} catch (error) {
+  console.error('❌ Error iniciando servicio de monitoreo:', error.message);
+}
 
 module.exports = app;

@@ -1,0 +1,32 @@
+================================================
+🔥 VARIABLES DE ENTORNO ACTUALIZADAS
+================================================
+
+Agrega estas líneas a tu archivo .env:
+
+# Twilio WhatsApp
+TWILIO_ACCOUNT_SID=AC332953b4c00211a282b4c59d45faf749
+TWILIO_AUTH_TOKEN=cfd6638b2384981c48edfe84835219da
+TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
+
+# Agente por defecto de ElevenLabs (NUEVO)
+DEFAULT_AGENT_ID=agent_4701k8fcsvhaes5s1h6tw894g98s
+
+# Puerto del servidor
+PORT=5000
+
+# Para tests
+TEST_PHONE_NUMBER=+573138539155
+
+================================================
+¿QUÉ ES DEFAULT_AGENT_ID?
+================================================
+
+Es el agente de ElevenLabs que se usará cuando:
+- Alguien escribe por WhatsApp sin haber tenido llamada previa
+- Se necesita iniciar una conversación nueva automáticamente
+
+Este agente responderá a todas las conversaciones nuevas.
+
+================================================
+
