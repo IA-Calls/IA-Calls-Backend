@@ -1,6 +1,16 @@
 const Client = require('../models/Client');
 const Group = require('../models/Group');
 
+// Instancia singleton de TwilioWhatsAppService para reutilizar
+let twilioWhatsAppService = null;
+const getTwilioService = () => {
+  if (!twilioWhatsAppService) {
+    const TwilioWhatsAppService = require('../services/twilioWhatsAppService');
+    twilioWhatsAppService = new TwilioWhatsAppService();
+  }
+  return twilioWhatsAppService;
+};
+
 // Obtener todos los clientes
 const getClients = async (req, res) => {
   try {
@@ -135,6 +145,70 @@ const createClient = async (req, res) => {
     });
   } catch (error) {
     console.error('Error creando cliente:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error creando cliente',
+      error: error.message
+    });
+  }
+};
+
+// Crear cliente simple (solo nombre y número) y enviar WhatsApp
+const createClientSimple = async (req, res) => {
+  try {
+    // Log del body recibido
+    console.log('📥 POST /api/clients/simple - Body recibido:', JSON.stringify(req.body, null, 2));
+    
+    const { name, phone_number } = req.body;
+
+    if (!name || !phone_number) {
+      return res.status(400).json({
+        success: false,
+        message: 'Nombre y phone_number son requeridos'
+      });
+    }
+
+    // Crear cliente (convertir phone_number a string)
+    const phoneNumberStr = String(phone_number).trim();
+    const client = await Client.create({
+      name: String(name).trim(),
+      phone: phoneNumberStr,
+      status: 'pending'
+    });
+
+    console.log(`✅ Cliente creado: ID=${client.id}, name="${name}", phone="${phoneNumberStr}"`);
+
+    // Enviar mensaje de WhatsApp
+    try {
+      console.log(`📱 Preparando envío WhatsApp a: ${phoneNumberStr}`);
+      const whatsappService = getTwilioService();
+      const message = `Hola ${name} te mandaré la información del evento de manera inmediata`;
+      console.log(`💬 Mensaje: "${message}"`);
+      
+      const whatsappResult = await whatsappService.sendMessage(phoneNumberStr, message, name);
+      
+      if (whatsappResult.success) {
+        console.log(`✅ WhatsApp enviado exitosamente`);
+        console.log(`   - Message ID: ${whatsappResult.messageId}`);
+        console.log(`   - Status: ${whatsappResult.status}`);
+        console.log(`   - To: ${whatsappResult.data?.to || 'N/A'}`);
+      } else {
+        console.error(`❌ Error enviando WhatsApp:`);
+        console.error(`   - Error: ${whatsappResult.error?.message || 'Error desconocido'}`);
+        console.error(`   - Code: ${whatsappResult.error?.code || 'N/A'}`);
+      }
+    } catch (whatsappError) {
+      console.error(`❌ Error en envío de WhatsApp: ${whatsappError.message}`);
+      console.error(`   Stack: ${whatsappError.stack}`);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Cliente creado exitosamente',
+      data: client
+    });
+  } catch (error) {
+    console.error('❌ Error creando cliente simple:', error.message);
     res.status(500).json({
       success: false,
       message: 'Error creando cliente',
@@ -459,6 +533,7 @@ module.exports = {
   getClients,
   getClientById,
   createClient,
+  createClientSimple,
   updateClient,
   deleteClient,
   syncClients,

@@ -17,6 +17,7 @@ router.get('/stats', clientsController.getClientStats);
 router.get('/pending/:clientId', clientsController.getPendingClientsByClientId); // Nueva ruta
 router.get('/:id', clientsController.getClientById);
 router.post('/', clientsController.createClient);
+router.post('/simple', clientsController.createClientSimple); // Endpoint simple: solo nombre y número
 router.put('/:id', clientsController.updateClient);
 router.delete('/:id', clientsController.deleteClient);
 

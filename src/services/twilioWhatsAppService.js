@@ -23,24 +23,52 @@ class TwilioWhatsAppService {
    */
   async sendMessage(to, message, clientName = 'Cliente') {
     try {
-      // Formatear número de destino con prefijo whatsapp:
-      let formattedTo = to;
+      // Convertir a string y limpiar el número de destino
+      let formattedTo = String(to || '').trim();
       
-      // Si el número no tiene el prefijo whatsapp:, agregarlo
-      if (!formattedTo.startsWith('whatsapp:')) {
-        // Asegurarse de que tenga el +
-        if (!formattedTo.startsWith('+')) {
-          formattedTo = '+' + formattedTo;
-        }
-        formattedTo = 'whatsapp:' + formattedTo;
+      // Remover cualquier espacio, guión o paréntesis
+      formattedTo = formattedTo.replace(/[\s\-\(\)]/g, '');
+      
+      // Remover prefijo whatsapp: si ya lo tiene para procesarlo
+      if (formattedTo.startsWith('whatsapp:')) {
+        formattedTo = formattedTo.replace('whatsapp:', '');
       }
+      
+      // Si no tiene código de país (+), agregar +57 para números colombianos
+      if (!formattedTo.startsWith('+')) {
+        // Detectar si es número colombiano (10 dígitos y empieza con 3)
+        const cleanNumber = formattedTo.replace(/\D/g, ''); // Solo dígitos
+        if (cleanNumber.length === 10 && cleanNumber.startsWith('3')) {
+          formattedTo = '+57' + cleanNumber;
+        } else {
+          formattedTo = '+' + cleanNumber;
+        }
+      }
+      
+      // Agregar prefijo whatsapp: al final
+      formattedTo = 'whatsapp:' + formattedTo;
 
-      // Enviar mensaje usando Twilio
-      const twilioMessage = await this.client.messages.create({
+      console.log(`📞 Número formateado: ${formattedTo}`);
+      console.log(`📨 From: ${this.fromNumber}`);
+      console.log(`💬 Mensaje: "${message}"`);
+
+      // Preparar payload para Twilio
+      const payload = {
         from: this.fromNumber,
         body: message,
         to: formattedTo
-      });
+      };
+
+      console.log(`📤 Payload enviado a Twilio:`, JSON.stringify(payload, null, 2));
+
+      // Enviar mensaje usando Twilio
+      const twilioMessage = await this.client.messages.create(payload);
+
+      console.log(`✅ Mensaje creado en Twilio:`);
+      console.log(`   - SID: ${twilioMessage.sid}`);
+      console.log(`   - Status: ${twilioMessage.status}`);
+      console.log(`   - To: ${twilioMessage.to}`);
+      console.log(`   - From: ${twilioMessage.from}`);
 
       return {
         success: true,
@@ -56,12 +84,21 @@ class TwilioWhatsAppService {
           direction: twilioMessage.direction,
           numSegments: twilioMessage.numSegments,
           price: twilioMessage.price,
-          priceUnit: twilioMessage.priceUnit
+          priceUnit: twilioMessage.priceUnit,
+          errorCode: twilioMessage.errorCode,
+          errorMessage: twilioMessage.errorMessage
         }
       };
 
     } catch (error) {
-      console.error(`❌ Twilio error: ${error.code} - ${error.message}`);
+      console.error(`❌ Twilio error completo:`);
+      console.error(`   - Code: ${error.code}`);
+      console.error(`   - Message: ${error.message}`);
+      console.error(`   - Status: ${error.status}`);
+      console.error(`   - More Info: ${error.moreInfo}`);
+      if (error.stack) {
+        console.error(`   - Stack: ${error.stack}`);
+      }
       
       return {
         success: false,
@@ -90,24 +127,46 @@ class TwilioWhatsAppService {
       console.log(`📋 Content SID: ${contentSid}`);
       console.log(`📝 Variables:`, variables);
       
-      // Formatear número de destino
-      let formattedTo = to;
-      if (!formattedTo.startsWith('whatsapp:')) {
-        if (!formattedTo.startsWith('+')) {
-          formattedTo = '+' + formattedTo;
-        }
-        formattedTo = 'whatsapp:' + formattedTo;
+      // Convertir a string y limpiar el número de destino
+      let formattedTo = String(to || '').trim();
+      
+      // Remover cualquier espacio, guión o paréntesis
+      formattedTo = formattedTo.replace(/[\s\-\(\)]/g, '');
+      
+      // Remover prefijo whatsapp: si ya lo tiene para procesarlo
+      if (formattedTo.startsWith('whatsapp:')) {
+        formattedTo = formattedTo.replace('whatsapp:', '');
       }
+      
+      // Si no tiene código de país (+), agregar +57 para números colombianos
+      if (!formattedTo.startsWith('+')) {
+        // Detectar si es número colombiano (10 dígitos y empieza con 3)
+        const cleanNumber = formattedTo.replace(/\D/g, ''); // Solo dígitos
+        if (cleanNumber.length === 10 && cleanNumber.startsWith('3')) {
+          formattedTo = '+57' + cleanNumber;
+        } else {
+          formattedTo = '+' + cleanNumber;
+        }
+      }
+      
+      // Agregar prefijo whatsapp: al final
+      formattedTo = 'whatsapp:' + formattedTo;
+
+      console.log(`📞 Número formateado: ${formattedTo}`);
 
       // Convertir variables a string JSON
       const contentVariables = JSON.stringify(variables);
 
-      const twilioMessage = await this.client.messages.create({
+      const payload = {
         from: this.fromNumber,
         contentSid: contentSid,
         contentVariables: contentVariables,
         to: formattedTo
-      });
+      };
+
+      console.log(`📤 Payload enviado a Twilio:`, JSON.stringify(payload, null, 2));
+
+      const twilioMessage = await this.client.messages.create(payload);
 
       console.log('✅ Template enviado exitosamente');
       console.log(`📨 Message SID: ${twilioMessage.sid}`);
