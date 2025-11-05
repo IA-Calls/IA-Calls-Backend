@@ -971,14 +971,7 @@ app.use((err, req, res, next) => {
 // ============================================
 
 // Iniciar el servicio de monitoreo de llamadas
-try {
-  const BatchMonitoringService = require('./services/batchMonitoringService');
-  const batchMonitoringService = new BatchMonitoringService();
-  batchMonitoringService.start();
-  
-  console.log('✅ Servicio de monitoreo de llamadas iniciado');
-} catch (error) {
-  console.error('❌ Error iniciando servicio de monitoreo:', error.message);
-}
+// Nota: batchMonitoringService ya es una instancia singleton exportada
+// No necesita ser instanciado nuevamente, se iniciará desde server.js
 
 module.exports = app;

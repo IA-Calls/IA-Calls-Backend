@@ -72,7 +72,38 @@ class Group {
       return new Group(result.rows[0]);
     } catch (error) {
       if (error.code === '23505') {
-        throw new Error('Ya existe un grupo con este nombre');
+        // Error de clave duplicada - puede ser ID o nombre único
+        if (error.message.includes('groups_pkey')) {
+          // Error de ID duplicado - necesitamos sincronizar la secuencia
+          console.error('⚠️ Error: ID duplicado en groups. Sincronizando secuencia...');
+          try {
+            // Sincronizar la secuencia con el máximo ID existente
+            await query(`
+              SELECT setval('groups_id_seq', COALESCE((SELECT MAX(id) FROM "public"."groups"), 1), true)
+            `);
+            console.log('✅ Secuencia groups_id_seq sincronizada');
+            
+            // Reintentar la inserción
+            const retryResult = await query(
+              `INSERT INTO "public"."groups" (
+                name, description, prompt, color, favorite, created_by, 
+                idioma, variables, is_active, created_at, updated_at,
+                prefix, selected_country_code, first_message, phone_number_id, agent_id
+              )
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14)
+               RETURNING *`,
+              [
+                name, description, prompt, color, favorite, createdBy, 
+                idioma, JSON.stringify(variables), true,
+                prefix, selectedCountryCode, firstMessage, phoneNumberId, agentId
+              ]
+            );
+            return new Group(retryResult.rows[0]);
+          } catch (retryError) {
+            throw new Error(`Error creando grupo después de sincronizar secuencia: ${retryError.message}`);
+          }
+        }
+        throw new Error('Ya existe un grupo con este nombre o ID');
       }
       throw new Error(`Error creando grupo: ${error.message}`);
     }

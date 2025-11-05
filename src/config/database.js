@@ -3,13 +3,48 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // Detectar si estamos en entorno local o producción
-const isLocal = process.env.NODE_ENV !== 'production' && !process.env.DB_HOST;
+const isProduction = process.env.NODE_ENV === 'production';
 
 // Configuración para PostgreSQL
 let dbConfig;
 
-if (process.env.DATABASE_LOCAL_URL) {
-  // Usar URL de conexión directa si está disponible
+if (isProduction) {
+  // ⚠️ PRODUCCIÓN: Usar variables individuales de Cloud SQL (DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, DB_PORT)
+  console.log('🌐 Modo PRODUCCIÓN: Conectando a servicios en la nube (GCP Cloud SQL)...');
+  
+  dbConfig = {
+    host: process.env.DB_HOST,
+    port: parseInt(process.env.DB_PORT),
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    ssl: { rejectUnauthorized: false }, // Requerido para GCP Cloud SQL
+    max: 20, // Pool más grande en producción
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+  };
+  
+  // Validar que todas las variables estén configuradas
+  if (!dbConfig.host || !dbConfig.database || !dbConfig.user || !dbConfig.password) {
+    console.error('❌ ERROR: Faltan variables de entorno para producción:');
+    console.error('   - DB_HOST');
+    console.error('   - DB_NAME');
+    console.error('   - DB_USER');
+    console.error('   - DB_PASSWORD');
+    console.error('\n💡 Si estás en desarrollo local, quita NODE_ENV=production o usa NODE_ENV=development');
+    throw new Error('Configuración incompleta para producción');
+  }
+} else {
+  // DESARROLLO: Usar DATABASE_LOCAL_URL
+  if (!process.env.DATABASE_LOCAL_URL) {
+    console.error('❌ ERROR: DATABASE_LOCAL_URL no está configurado para desarrollo');
+    console.error('   Configura DATABASE_LOCAL_URL en tu archivo .env');
+    throw new Error('DATABASE_LOCAL_URL no configurado');
+  }
+  
+  console.log('💻 Modo DESARROLLO: Conectando a base de datos local...');
   dbConfig = {
     connectionString: process.env.DATABASE_LOCAL_URL,
     ssl: false,
@@ -19,28 +54,9 @@ if (process.env.DATABASE_LOCAL_URL) {
     keepAlive: true,
     keepAliveInitialDelayMillis: 10000,
   };
-} else {
-  // Configuración tradicional por variables individuales
-  dbConfig = {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'ia-calls',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || 'moon@1014198153',
-    
-    // SSL solo en producción (GCP Cloud SQL)
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    
-    // Pool de conexiones optimizado
-    max: isLocal ? 5 : 10, // Menos conexiones en local
-    idleTimeoutMillis: 30000, // 30 segundos
-    connectionTimeoutMillis: isLocal ? 5000 : 10000, // Menos timeout en local
-    
-    // Configuración adicional
-    keepAlive: true,
-    keepAliveInitialDelayMillis: 10000,
-  };
 }
+
+const isLocal = !isProduction;
 
 // Crear pool de conexiones
 const pool = new Pool(dbConfig);
@@ -56,11 +72,11 @@ const connectDB = async () => {
     // Probar conexión obteniendo un cliente del pool
     const client = await pool.connect();
     
-    console.log(`📊 Conexión a PostgreSQL ${isLocal ? '(LOCAL)' : '(GCP)'} establecida`);
-    console.log(`📍 Base de datos: ${dbConfig.database}`);
-    console.log(`🌐 Host: ${dbConfig.host}:${dbConfig.port}`);
+    console.log(`📊 Conexión a PostgreSQL ${isLocal ? '(LOCAL)' : '(CLOUD/GCP)'} establecida`);
+    console.log(`📍 Base de datos: ${dbConfig.database || dbConfig.connectionString?.split('/').pop() || 'N/A'}`);
+    console.log(`🌐 Host: ${dbConfig.host || dbConfig.connectionString?.match(/@([^:]+)/)?.[1] || 'N/A'}:${dbConfig.port || 'N/A'}`);
     console.log(`🔐 SSL: ${dbConfig.ssl ? 'Habilitado' : 'Deshabilitado'}`);
-    console.log(`🏠 Entorno: ${isLocal ? 'Desarrollo Local' : 'Producción'}`);
+    console.log(`🏠 Entorno: ${isProduction ? '🌐 PRODUCCIÓN (GCP Cloud SQL)' : '💻 DESARROLLO (Local)'}`);
     
     // Probar la conexión con una query simple
     const result = await client.query('SELECT NOW() as server_time, version() as version');

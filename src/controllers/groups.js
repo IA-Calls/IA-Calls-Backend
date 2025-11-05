@@ -130,6 +130,8 @@ const createGroup = async (req, res) => {
       phoneNumberId,
       agentId  // NUEVO: ID del agente de ElevenLabs a asignar
     } = req.body;
+    
+    // Importar logActivity al inicio del scope
     const { logActivity } = require('../utils/helpers');
     
     console.log('📋 Datos recibidos en createGroup:');
