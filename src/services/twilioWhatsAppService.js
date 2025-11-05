@@ -3,9 +3,9 @@ dotenv.config();
 
 class TwilioWhatsAppService {
   constructor() {
-    this.accountSid = process.env.TWILIO_ACCOUNT_SID || 'AC332953b4c00211a282b4c59d45faf749';
-    this.authToken = process.env.TWILIO_AUTH_TOKEN || 'cfd6638b2384981c48edfe84835219da';
-    this.fromNumber = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+    this.accountSid = process.env.TWILIO_ACCOUNT_SID;
+    this.authToken = process.env.TWILIO_AUTH_TOKEN ;
+    this.fromNumber = process.env.TWILIO_WHATSAPP_NUMBER ;
     
     // Inicializar cliente de Twilio
     this.client = require('twilio')(this.accountSid, this.authToken);
