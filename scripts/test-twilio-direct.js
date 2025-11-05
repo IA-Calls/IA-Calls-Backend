@@ -5,9 +5,20 @@
 require('dotenv').config();
 const twilio = require('twilio');
 
-const accountSid = process.env.TWILIO_ACCOUNT_SID || 'AC332953b4c00211a282b4c59d45faf749';
-const authToken = process.env.TWILIO_AUTH_TOKEN || 'cfd6638b2384981c48edfe84835219da';
-const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+// Obtener credenciales desde variables de entorno (requeridas)
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const fromNumber = process.env.TWILIO_WHATSAPP_NUMBER;
+
+// Validar que las credenciales estén configuradas
+if (!accountSid || !authToken || !fromNumber) {
+  console.error('❌ ERROR: Faltan credenciales de Twilio en las variables de entorno');
+  console.error('   Configura las siguientes variables en tu archivo .env:');
+  console.error('   - TWILIO_ACCOUNT_SID');
+  console.error('   - TWILIO_AUTH_TOKEN');
+  console.error('   - TWILIO_WHATSAPP_NUMBER');
+  process.exit(1);
+}
 
 const client = twilio(accountSid, authToken);
 

@@ -6,14 +6,17 @@ Write-Host "TEST DE LLAMADA + WHATSAPP" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Configurar variables de entorno
-$env:TWILIO_ACCOUNT_SID = "AC332953b4c00211a282b4c59d45faf749"
-$env:TWILIO_AUTH_TOKEN = "cfd6638b2384981c48edfe84835219da"
-$env:TWILIO_WHATSAPP_FROM = "whatsapp:+14155238886"
-$env:TEST_PHONE_NUMBER = "+573138539155"
-$env:PORT = "5000"
+# IMPORTANTE: Las credenciales deben estar en el archivo .env
+# Este script NO debe contener credenciales hardcodeadas por seguridad
+# Verifica que tu archivo .env contenga:
+#   - TWILIO_ACCOUNT_SID
+#   - TWILIO_AUTH_TOKEN
+#   - TWILIO_WHATSAPP_FROM (o TWILIO_WHATSAPP_NUMBER)
+#   - TEST_PHONE_NUMBER (opcional, para pruebas)
 
-Write-Host "Variables configuradas correctamente" -ForegroundColor Green
+Write-Host "⚠️  IMPORTANTE: Las credenciales deben estar en .env" -ForegroundColor Yellow
+Write-Host "   Este script ya no contiene credenciales hardcodeadas" -ForegroundColor Yellow
+Write-Host ""
 Write-Host ""
 
 # Ejecutar test
