@@ -464,6 +464,35 @@ const cleanOldActivityLogs = async (daysToKeep = 90) => {
   }
 };
 
+// Función de Deep Merge para fusionar objetos anidados
+const deepMerge = (target, source) => {
+  const output = Object.assign({}, target);
+  
+  if (isObject(target) && isObject(source)) {
+    Object.keys(source).forEach(key => {
+      if (isObject(source[key])) {
+        if (!(key in target)) {
+          Object.assign(output, { [key]: source[key] });
+        } else {
+          output[key] = deepMerge(target[key], source[key]);
+        }
+      } else if (Array.isArray(source[key])) {
+        // Para arrays, reemplazar completamente si existe en source
+        output[key] = source[key];
+      } else {
+        Object.assign(output, { [key]: source[key] });
+      }
+    });
+  }
+  
+  return output;
+};
+
+// Helper para verificar si es objeto
+const isObject = (item) => {
+  return item && typeof item === 'object' && !Array.isArray(item);
+};
+
 module.exports = {
   sendResponse,
   sendError,
@@ -477,5 +506,7 @@ module.exports = {
   generateAndUploadExcel,
   logActivity,
   getUserActivityLogs,
-  cleanOldActivityLogs
+  cleanOldActivityLogs,
+  deepMerge,
+  isObject
 }; 

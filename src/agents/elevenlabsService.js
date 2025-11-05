@@ -208,6 +208,64 @@ class ElevenLabsService {
   }
 
   /**
+   * Crear un agente con configuración completa (para uso con JSON fusionado)
+   * @param {Object} agentConfig - Configuración completa del agente
+   * @returns {Promise<Object>} - Respuesta con el agent_id creado
+   */
+  async createAgentWithConfig(agentConfig) {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log('🤖 Creando agente en ElevenLabs con configuración personalizada...');
+      console.log('📋 Configuración del agente:', JSON.stringify(agentConfig, null, 2));
+
+      const response = await axios.post(`${this.baseUrl}/convai/agents/create`, agentConfig, {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      console.log('✅ Agente creado exitosamente:', response.data);
+
+      return {
+        success: true,
+        agent_id: response.data.agent_id,
+        data: response.data,
+        message: 'Agente conversacional creado exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error creando agente en ElevenLabs:', error);
+      
+      let errorMessage = error.message;
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+      
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error al crear agente conversacional'
+      };
+    }
+  }
+
+  /**
    * Obtener información de un agente
    * @param {string} agentId - ID del agente
    * @returns {Promise<Object>} - Información del agente

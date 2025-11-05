@@ -36,9 +36,10 @@ class TwilioWhatsAppService {
       
       // Si no tiene código de país (+), agregar +57 para números colombianos
       if (!formattedTo.startsWith('+')) {
-        // Detectar si es número colombiano (10 dígitos y empieza con 3)
+        // Detectar si es número colombiano (9-10 dígitos y empieza con 3)
         const cleanNumber = formattedTo.replace(/\D/g, ''); // Solo dígitos
-        if (cleanNumber.length === 10 && cleanNumber.startsWith('3')) {
+        // Números móviles colombianos: 9 o 10 dígitos que empiezan con 3
+        if ((cleanNumber.length === 9 || cleanNumber.length === 10) && cleanNumber.startsWith('3')) {
           formattedTo = '+57' + cleanNumber;
         } else {
           formattedTo = '+' + cleanNumber;
@@ -140,9 +141,10 @@ class TwilioWhatsAppService {
       
       // Si no tiene código de país (+), agregar +57 para números colombianos
       if (!formattedTo.startsWith('+')) {
-        // Detectar si es número colombiano (10 dígitos y empieza con 3)
+        // Detectar si es número colombiano (9-10 dígitos y empieza con 3)
         const cleanNumber = formattedTo.replace(/\D/g, ''); // Solo dígitos
-        if (cleanNumber.length === 10 && cleanNumber.startsWith('3')) {
+        // Números móviles colombianos: 9 o 10 dígitos que empiezan con 3
+        if ((cleanNumber.length === 9 || cleanNumber.length === 10) && cleanNumber.startsWith('3')) {
           formattedTo = '+57' + cleanNumber;
         } else {
           formattedTo = '+' + cleanNumber;

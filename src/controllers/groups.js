@@ -127,7 +127,8 @@ const createGroup = async (req, res) => {
       prefix,
       selectedCountryCode,
       firstMessage,
-      phoneNumberId
+      phoneNumberId,
+      agentId  // NUEVO: ID del agente de ElevenLabs a asignar
     } = req.body;
     const { logActivity } = require('../utils/helpers');
     
@@ -138,6 +139,7 @@ const createGroup = async (req, res) => {
     console.log('   - prefix:', prefix);
     console.log('   - selectedCountryCode:', selectedCountryCode);
     console.log('   - phoneNumberId:', phoneNumberId);
+    console.log('   - agentId:', agentId);
     
     // Usar clientId del body o del usuario autenticado
     const createdBy = parseInt(clientId) || req.user?.id;
@@ -168,6 +170,24 @@ const createGroup = async (req, res) => {
       });
     }
 
+    // Validar que el agente existe si se proporciona
+    if (agentId) {
+      console.log(`🔍 Validando existencia del agente ${agentId}...`);
+      const agentResult = await elevenlabsService.getAgent(agentId);
+      
+      if (!agentResult.success) {
+        return res.status(400).json({
+          success: false,
+          message: 'El agente especificado no existe o no es accesible',
+          error: agentResult.error
+        });
+      }
+      
+      console.log(`✅ Agente ${agentId} validado exitosamente`);
+    } else {
+      console.log('⚠️ No se proporcionó agentId - el grupo se creará sin agente asignado');
+    }
+
     const groupData = {
       name,
       description,
@@ -181,7 +201,8 @@ const createGroup = async (req, res) => {
       prefix: prefix || '+57',
       selectedCountryCode: selectedCountryCode || 'CO',
       firstMessage,
-      phoneNumberId
+      phoneNumberId,
+      agentId // NUEVO: Asignar agente directamente al grupo
     };
 
     // Crear el grupo
@@ -327,12 +348,16 @@ const createGroup = async (req, res) => {
     console.error('Error creando grupo:', error);
     
     // Registrar log de error
-    const errorCreatedBy = parseInt(clientId) || req.user?.id;
+    const errorCreatedBy = parseInt(req.body.clientId) || req.user?.id;
     if (errorCreatedBy) {
-      await logActivity(errorCreatedBy, 'create_group_error', `Error creando grupo "${name || 'sin nombre'}"`, req, {
-        error: error.message,
-        groupName: name
-      });
+      try {
+        await logActivity(errorCreatedBy, 'create_group_error', `Error creando grupo "${req.body.name || 'sin nombre'}"`, req, {
+          error: error.message,
+          groupName: req.body.name
+        });
+      } catch (logError) {
+        console.error('Error registrando log de actividad:', logError);
+      }
     }
     
     res.status(500).json({
@@ -992,7 +1017,56 @@ const startBatchCall = async (req, res) => {
     // El grupo ya fue obtenido anteriormente, no necesitamos buscarlo de nuevo
     console.log(`✅ Usando grupo ya obtenido: "${group.name}"`);
 
-    // Obtener el usuario para acceder a su agente
+    // Verificar que el grupo tiene un agente asignado
+    if (!group.agentId) {
+      console.error(`❌ Error: El grupo "${group.name}" no tiene un agente asignado`);
+      return res.status(400).json({
+        success: false,
+        message: 'El grupo no tiene un agente asignado. Por favor, asigna un agente al crear el grupo.'
+      });
+    }
+    console.log(`✅ Grupo tiene agente asignado: ${group.agentId}`);
+
+    // ⚠️ VALIDACIÓN CRÍTICA: Verificar configuración del agente antes de iniciar llamadas
+    console.log(`🔍 Verificando configuración del agente ${group.agentId}...`);
+    try {
+      const agentInfo = await elevenlabsService.getAgent(group.agentId);
+      
+      if (!agentInfo.success || !agentInfo.data) {
+        console.error(`❌ Error: No se pudo obtener información del agente ${group.agentId}`);
+        return res.status(400).json({
+          success: false,
+          message: 'No se pudo verificar la configuración del agente. Por favor, verifica que el agente existe y está configurado correctamente.'
+        });
+      }
+
+      const agentConfig = agentInfo.data.conversation_config;
+      const turnTimeout = agentConfig?.turn?.turn_timeout;
+      const firstMessage = agentConfig?.agent?.first_message;
+      
+      console.log(`📋 Configuración del agente:`);
+      console.log(`   - turn_timeout: ${turnTimeout || 'NO CONFIGURADO'}`);
+      console.log(`   - first_message: ${firstMessage ? '✅ Configurado' : '❌ NO CONFIGURADO'}`);
+      
+      // Advertir si el turn_timeout es muy corto
+      if (turnTimeout && turnTimeout < 15) {
+        console.warn(`⚠️ ADVERTENCIA: turn_timeout es muy corto (${turnTimeout}s). Se recomienda al menos 15 segundos para evitar que las llamadas se cuelguen.`);
+        console.warn(`   💡 Considera actualizar el agente con un turn_timeout mayor (15-30 segundos).`);
+      }
+      
+      // Advertir si no hay first_message
+      if (!firstMessage || firstMessage.trim() === '') {
+        console.warn(`⚠️ ADVERTENCIA: El agente no tiene un first_message configurado.`);
+        console.warn(`   💡 Esto puede causar que las llamadas se cuelguen inmediatamente.`);
+      }
+      
+    } catch (agentCheckError) {
+      console.error(`❌ Error verificando configuración del agente:`, agentCheckError.message);
+      // No fallar la llamada, solo advertir
+      console.warn(`⚠️ Continuando con la llamada, pero puede haber problemas si el agente no está bien configurado.`);
+    }
+
+    // Verificar que el usuario existe (para tracking)
     console.log(`🔍 Buscando usuario con ID: ${userId}`);
     const user = await User.findById(userId);
     if (!user) {
@@ -1002,18 +1076,10 @@ const startBatchCall = async (req, res) => {
         message: 'Usuario no encontrado'
       });
     }
-    
-    if (!user.agentId) {
-      console.error(`❌ Error: Usuario ${user.username} no tiene agente asignado`);
-      return res.status(404).json({
-        success: false,
-        message: 'Usuario no tiene un agente asignado'
-      });
-    }
-    console.log(`✅ Usuario encontrado: "${user.username}" con agente: ${user.agentId}`);
+    console.log(`✅ Usuario encontrado: "${user.username}"`);
 
     console.log(`📞 Iniciando batch call para el grupo "${group.name}"`);
-    console.log(`🤖 Agente: ${user.agentId}`);
+    console.log(`🤖 Agente del grupo: ${group.agentId}`);
     console.log(`👤 Usuario: ${user.username}`);
 
     // Obtener los clientes del grupo
@@ -1090,7 +1156,7 @@ const startBatchCall = async (req, res) => {
     // Preparar datos del batch call
     const batchData = {
       callName: `Llamada ${group.name} - ${new Date().toLocaleDateString('es-ES')}`,
-      agentId: user.agentId,
+      agentId: group.agentId, // NUEVO: Usar el agentId del grupo en lugar del del usuario
       agentPhoneNumberId: finalPhoneNumberId,
       recipients: recipients,
       scheduledTimeUnix: scheduledTimeUnix
@@ -1121,7 +1187,7 @@ const startBatchCall = async (req, res) => {
           scheduled_time_unix: scheduledTimeUnix,
           elevenlabs_response: batchResult.data,
           call_name: batchData.callName,
-          agent_id: user.agentId,
+          agent_id: group.agentId, // NUEVO: Usar el agentId del grupo
           user_id: user.id
         });
         
@@ -1139,7 +1205,7 @@ const startBatchCall = async (req, res) => {
           batchId: batchId,
           groupId: group.id,
           groupName: group.name,
-          agentId: user.agentId,
+          agentId: group.agentId, // NUEVO: Usar el agentId del grupo
           recipientsCount: recipients.length,
           callName: batchData.callName,
           batchData: batchResult.data

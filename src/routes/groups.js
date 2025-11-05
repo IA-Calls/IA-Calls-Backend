@@ -7,7 +7,8 @@ const groupsController = require('../controllers/groups');
 // Ruta para descargar archivos procesados (debe ir antes de /:id para evitar conflictos)
 router.get('/download/:fileName', groupsController.downloadProcessedFile);
 
-// Ruta para preparar agente con información del grupo (debe ir antes de /:id para evitar conflictos)
+// Ruta para preparar agente con información del grupo (DEPRECADA - Ya no es necesaria)
+// Se mantiene por compatibilidad pero se recomienda asignar el agente al crear el grupo
 router.post('/:id/prepare-agent', groupsController.prepareAgent);
 
 // Rutas para batch calling (deben ir antes de /:id para evitar conflictos)

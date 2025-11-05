@@ -31,6 +31,7 @@ class Group {
     this.selectedCountryCode = groupData.selected_country_code || 'CO';
     this.firstMessage = groupData.first_message;
     this.phoneNumberId = groupData.phone_number_id;
+    this.agentId = groupData.agent_id; // ID del agente de ElevenLabs asignado al grupo
   }
 
   // Crear grupo
@@ -49,21 +50,22 @@ class Group {
         prefix = '+57',
         selectedCountryCode = 'CO',
         firstMessage,
-        phoneNumberId
+        phoneNumberId,
+        agentId
       } = groupData;
       
       const result = await query(
         `INSERT INTO "public"."groups" (
           name, description, prompt, color, favorite, created_by, 
           idioma, variables, is_active, created_at, updated_at,
-          prefix, selected_country_code, first_message, phone_number_id
+          prefix, selected_country_code, first_message, phone_number_id, agent_id
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14)
          RETURNING *`,
         [
           name, description, prompt, color, favorite, createdBy, 
           idioma, JSON.stringify(variables), true,
-          prefix, selectedCountryCode, firstMessage, phoneNumberId
+          prefix, selectedCountryCode, firstMessage, phoneNumberId, agentId
         ]
       );
       
@@ -453,7 +455,13 @@ class Group {
       batchCompletedCalls: this.batchCompletedCalls,
       batchFailedCalls: this.batchFailedCalls,
       batchMetadata: this.batchMetadata,
-      batchCallStats: this.getBatchCallStats()
+      batchCallStats: this.getBatchCallStats(),
+      // Campo de agente asignado
+      agentId: this.agentId,
+      prefix: this.prefix,
+      selectedCountryCode: this.selectedCountryCode,
+      firstMessage: this.firstMessage,
+      phoneNumberId: this.phoneNumberId
     };
   }
 }

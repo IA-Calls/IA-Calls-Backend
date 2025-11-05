@@ -1,0 +1,226 @@
+==========================================================
+JSON PARA CREACIÓN DE AGENTE EN ELEVENLABS
+==========================================================
+
+ENDPOINT:
+POST https://api.elevenlabs.io/v1/convai/agents/create
+
+HEADERS:
+- xi-api-key: [TU_API_KEY]
+- Content-Type: application/json
+- User-Agent: IA-Calls-Backend/1.0.0
+
+==========================================================
+JSON POR DEFECTO (si no se pasan opciones)
+==========================================================
+
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "Responde preguntas de cultura general sobre el software de ia-calls, y no trates otros temas."
+      }
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente IA-Calls",
+  "tags": ["ia-calls", "asistente", "español"]
+}
+
+==========================================================
+JSON CUANDO SE REGISTRA UN USUARIO NUEVO
+==========================================================
+
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "Eres el asistente personal de [firstName] en IA-Calls. Responde preguntas sobre el software IA-Calls y ayuda con tareas relacionadas. Mantén un tono profesional y amigable."
+      }
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente [firstName]",
+  "tags": ["ia-calls", "usuario", "[username]"]
+}
+
+Ejemplo real con datos:
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "Eres el asistente personal de Alejandro en IA-Calls. Responde preguntas sobre el software IA-Calls y ayuda con tareas relacionadas. Mantén un tono profesional y amigable."
+      }
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente Alejandro",
+  "tags": ["ia-calls", "usuario", "adminiacalls"]
+}
+
+==========================================================
+JSON CUANDO SE CREA UN USUARIO (ADMIN)
+==========================================================
+
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "Eres el asistente personal de [firstName] en IA-Calls. Responde preguntas sobre el software IA-Calls y ayuda con tareas relacionadas. El usuario tiene rol de [role]. Mantén un tono profesional y amigable."
+      }
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente [firstName]",
+  "tags": ["ia-calls", "usuario", "[username]", "[role]"]
+}
+
+==========================================================
+JSON CUANDO SE PREPARA AGENTE PARA GRUPO
+==========================================================
+
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "[customPrompt generado basado en el grupo]"
+      },
+      "initial_message": "[firstMessage del grupo si existe]"
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente [firstName] - [groupName]",
+  "tags": [
+    "ia-calls",
+    "grupo",
+    "[group-name-slug]",
+    "[username]",
+    "preparado"
+  ]
+}
+
+Ejemplo real:
+{
+  "conversation_config": {
+    "tts": {
+      "voice_id": "pNInz6obpgDQGcFmaJgB",
+      "model_id": "eleven_turbo_v2_5"
+    },
+    "conversation": {
+      "text_only": false
+    },
+    "agent": {
+      "language": "es",
+      "prompt": {
+        "prompt": "Eres Ana Rosa, una especialista en estética y belleza con más de 20 años de experiencia. Tu tono es cálido, elegante y confiable, transmites seguridad, profesionalismo y bienestar..."
+      },
+      "initial_message": "Hola soy Ana Rosa especialista en estetica y belleza, con mas de 20 años de experencia en mi campo, como puedo ayudarte?"
+    }
+  },
+  "platform_settings": {},
+  "name": "Agente Alejandro - test ana 4",
+  "tags": [
+    "ia-calls",
+    "grupo",
+    "test-ana-4",
+    "adminiacalls",
+    "preparado"
+  ]
+}
+
+==========================================================
+ESTRUCTURA DEL BODY COMPLETO
+==========================================================
+
+El JSON se envía en el body de la petición POST con la siguiente estructura:
+
+{
+  "conversation_config": {
+    "tts": {                    // Configuración de Text-to-Speech
+      "voice_id": "string",     // ID de la voz (ej: "pNInz6obpgDQGcFmaJgB")
+      "model_id": "string"      // Modelo TTS (ej: "eleven_turbo_v2_5")
+    },
+    "conversation": {           // Configuración de conversación
+      "text_only": boolean      // false para audio, true para solo texto
+    },
+    "agent": {                  // Configuración del agente
+      "language": "string",     // Código de idioma (ej: "es")
+      "prompt": {               // Prompt del agente
+        "prompt": "string"      // Texto del prompt
+      },
+      "initial_message": "string" // Mensaje inicial (opcional)
+    }
+  },
+  "platform_settings": {},      // Configuración de plataforma (objeto vacío por defecto)
+  "name": "string",            // Nombre del agente
+  "tags": ["string"]           // Array de tags
+}
+
+==========================================================
+NOTAS IMPORTANTES
+==========================================================
+
+1. El campo "conversation_config" contiene toda la configuración del agente
+2. "tts.voice_id" es obligatorio - actualmente se usa "pNInz6obpgDQGcFmaJgB" (Adam)
+3. "tts.model_id" es obligatorio para agentes no-inglés - se usa "eleven_turbo_v2_5"
+4. "agent.language" establece el idioma del agente (actualmente "es" para español)
+5. "agent.prompt.prompt" contiene las instrucciones del agente
+6. "agent.initial_message" es opcional y solo se agrega cuando el grupo tiene firstMessage
+7. Los "tags" ayudan a organizar y buscar agentes en ElevenLabs
+8. El método createAgent() combina las opciones por defecto con las personalizadas
+
+==========================================================
+EJEMPLO DE RESPUESTA EXITOSA
+==========================================================
+
+{
+  "agent_id": "agent_4701k8fcsvhaes5s1h6tw894g98s",
+  "name": "Agente Alejandro",
+  "created_at": "2025-10-26T12:00:00Z",
+  ...
+}
+
+El "agent_id" es el que se guarda en la base de datos (tabla users, columna agent_id)
+
+==========================================================
+

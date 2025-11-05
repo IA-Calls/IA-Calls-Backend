@@ -3,6 +3,7 @@ const router = express.Router();
 const { elevenlabsService } = require('../agents');
 const { authenticate } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/authorize');
+const agentsController = require('../controllers/agents');
 
 // GET /api/agents/phone-numbers - Obtener números de teléfono disponibles (SIN AUTENTICACIÓN)
 router.get('/phone-numbers', async (req, res) => {
@@ -48,10 +49,16 @@ router.get('/phone-numbers', async (req, res) => {
   }
 });
 
-// Middleware para autenticación en todas las demás rutas
-router.use(authenticate);
+// GET /api/agents - Listar todos los agentes (público, sin autenticación)
+// IMPORTANTE: Esta ruta debe ir ANTES del middleware de autenticación y antes de /:agentId
+router.get('/', agentsController.listAgents);
 
-// GET /api/agents/test - Probar conexión con ElevenLabs
+// GET /api/agents/list - Listar agentes (alternativa, mantiene compatibilidad)
+router.get('/list', agentsController.listAgents);
+
+// GET /api/agents/phone-numbers - Obtener números de teléfono (ya está arriba)
+
+// GET /api/agents/test - Probar conexión con ElevenLabs (antes de autenticación)
 router.get('/test', async (req, res) => {
   try {
     const testResult = await elevenlabsService.testConnection();
@@ -73,94 +80,18 @@ router.get('/test', async (req, res) => {
   }
 });
 
-// GET /api/agents/list - Listar agentes (solo admins)
-router.get('/list', requireAdmin, async (req, res) => {
-  try {
-    const result = await elevenlabsService.listAgents();
-    
-    res.json({
-      success: result.success,
-      data: result.data || null,
-      error: result.error || null,
-      message: result.success ? 'Agentes obtenidos exitosamente' : 'Error obteniendo agentes'
-    });
+// GET /api/agents/:agentId - Obtener información de un agente específico (público)
+// IMPORTANTE: Debe ir después de todas las rutas específicas pero antes del middleware de auth
+router.get('/:agentId', agentsController.getAgentById);
 
-  } catch (error) {
-    console.error('Error listando agentes:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
-    });
-  }
-});
+// PATCH /api/agents/:agentId - Actualizar configuración de un agente (público)
+router.patch('/:agentId', agentsController.updateAgentById);
 
-// GET /api/agents/:agentId - Obtener información de un agente específico
-router.get('/:agentId', async (req, res) => {
-  try {
-    const { agentId } = req.params;
-    
-    // Verificar que el usuario puede acceder al agente
-    // (solo su propio agente o si es admin)
-    if (req.user.role !== 'admin' && req.user.agentId !== agentId) {
-      return res.status(403).json({
-        success: false,
-        message: 'No tienes permisos para acceder a este agente'
-      });
-    }
+// PUT /api/agents/:agentId - Actualizar configuración de un agente (alternativa, mantiene compatibilidad)
+router.put('/:agentId', agentsController.updateAgentById);
 
-    const result = await elevenlabsService.getAgent(agentId);
-    
-    res.json({
-      success: result.success,
-      data: result.data || null,
-      error: result.error || null,
-      message: result.success ? 'Agente obtenido exitosamente' : 'Error obteniendo agente'
-    });
-
-  } catch (error) {
-    console.error('Error obteniendo agente:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
-    });
-  }
-});
-
-// PUT /api/agents/:agentId - Actualizar configuración de un agente
-router.put('/:agentId', async (req, res) => {
-  try {
-    const { agentId } = req.params;
-    const updateData = req.body;
-    
-    // Verificar que el usuario puede modificar el agente
-    // (solo su propio agente o si es admin)
-    if (req.user.role !== 'admin' && req.user.agentId !== agentId) {
-      return res.status(403).json({
-        success: false,
-        message: 'No tienes permisos para modificar este agente'
-      });
-    }
-
-    const result = await elevenlabsService.updateAgent(agentId, updateData);
-    
-    res.json({
-      success: result.success,
-      data: result.data || null,
-      error: result.error || null,
-      message: result.success ? 'Agente actualizado exitosamente' : 'Error actualizando agente'
-    });
-
-  } catch (error) {
-    console.error('Error actualizando agente:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
-    });
-  }
-});
+// Middleware para autenticación en todas las demás rutas (después de rutas públicas)
+router.use(authenticate);
 
 // DELETE /api/agents/:agentId - Eliminar un agente (solo admins)
 router.delete('/:agentId', requireAdmin, async (req, res) => {
@@ -208,5 +139,8 @@ router.post('/create', requireAdmin, async (req, res) => {
     });
   }
 });
+
+// POST /api/agents/create-agent - Crear agente fusionando con JSON base (público o autenticado según necesidad)
+router.post('/create-agent', agentsController.createAgent);
 
 module.exports = router;

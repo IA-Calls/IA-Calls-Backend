@@ -22,6 +22,7 @@ const gcpDocumentsRoutes = require('./gcpDocuments');
 
 // Importar rutas de agentes
 const agentsRoutes = require('./agents');
+const agentsController = require('../controllers/agents');
 
 // Importar rutas de batch calls
 const batchCallsRoutes = require('./batchCalls');
@@ -53,6 +54,9 @@ router.use('/gcp-documents', gcpDocumentsRoutes);
 
 // Rutas de agentes
 router.use('/agents', agentsRoutes);
+
+// POST /api/create-agent - Crear agente fusionando con JSON base
+router.post('/create-agent', agentsController.createAgent);
 
 // Rutas de batch calls
 router.use('/batch-calls', batchCallsRoutes);
