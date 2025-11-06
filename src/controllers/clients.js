@@ -1,5 +1,6 @@
 const Client = require('../models/Client');
 const Group = require('../models/Group');
+const ClientInterested = require('../models/ClientInterested');
 
 // Instancia singleton de TwilioWhatsAppService para reutilizar
 let twilioWhatsAppService = null;
@@ -601,6 +602,50 @@ const getClientStats = async (req, res) => {
   }
 };
 
+// Crear cliente interesado (nuevo endpoint)
+const createClientInterested = async (req, res) => {
+  try {
+    const { name, phone_number } = req.body;
+
+    // Validar que se reciban los parámetros requeridos
+    if (!name || !phone_number) {
+      return res.status(400).json({
+        success: false,
+        message: 'Los parámetros name y phone_number son requeridos',
+        error: 'Parámetros faltantes'
+      });
+    }
+
+    console.log('📝 Creando cliente interesado:');
+    console.log(`   - Nombre: ${name}`);
+    console.log(`   - Teléfono: ${phone_number}`);
+
+    // Crear el cliente interesado usando el modelo
+    const clientInterested = await ClientInterested.create({
+      name: String(name).trim(),
+      phone_number: String(phone_number).trim()
+    });
+
+    console.log('✅ Cliente interesado creado exitosamente');
+    console.log(`   - ID: ${clientInterested.id}`);
+    console.log(`   - Data: ${JSON.stringify(clientInterested.data, null, 2)}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Cliente interesado guardado exitosamente',
+      data: clientInterested.toJSON()
+    });
+  } catch (error) {
+    console.error('❌ Error creando cliente interesado:', error.message);
+    console.error('   Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Error guardando cliente interesado',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getClients,
   getClientById,
@@ -610,5 +655,6 @@ module.exports = {
   deleteClient,
   syncClients,
   getClientStats,
-  getPendingClientsByClientId
+  getPendingClientsByClientId,
+  createClientInterested
 }; 
