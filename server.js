@@ -1,7 +1,6 @@
 const app = require('./src/app');
 const dotenv = require('dotenv');
 const { connectDB } = require('./src/config/database');
-const batchMonitoringService = require('./src/services/batchMonitoringService');
 
 // Cargar variables de entorno
 dotenv.config();
@@ -21,11 +20,6 @@ const startServer = async () => {
       console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
       console.log(`📍 Entorno: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🌐 URL: http://localhost:${PORT}`);
-      
-      // Iniciar servicio de monitoreo global de batch calls
-      console.log('\n');
-      batchMonitoringService.start();
-      console.log('\n');
     });
   } catch (error) {
     console.error('❌ Error iniciando servidor:', error);
