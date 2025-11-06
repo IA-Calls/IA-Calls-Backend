@@ -605,14 +605,40 @@ const getClientStats = async (req, res) => {
 // Crear cliente interesado (nuevo endpoint)
 const createClientInterested = async (req, res) => {
   try {
+    // Logs detallados de lo que llega
+    console.log('📥 ===== REQUEST RECIBIDO EN /api/clients/interested =====');
+    console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('📋 Body completo:', JSON.stringify(req.body, null, 2));
+    console.log('📋 Body tipo:', typeof req.body);
+    console.log('📋 Body es array?', Array.isArray(req.body));
+    console.log('📋 Body keys:', Object.keys(req.body || {}));
+    console.log('📋 Query params:', JSON.stringify(req.query, null, 2));
+    console.log('📋 Params:', JSON.stringify(req.params, null, 2));
+    
     const { name, phone_number } = req.body;
+    
+    console.log('📋 Valores extraídos:');
+    console.log(`   - name: "${name}" (tipo: ${typeof name}, existe: ${!!name})`);
+    console.log(`   - phone_number: "${phone_number}" (tipo: ${typeof phone_number}, existe: ${!!phone_number})`);
 
     // Validar que se reciban los parámetros requeridos
     if (!name || !phone_number) {
+      console.error('❌ Validación fallida:');
+      console.error(`   - name presente: ${!!name}`);
+      console.error(`   - phone_number presente: ${!!phone_number}`);
+      console.error('📋 Body recibido:', JSON.stringify(req.body, null, 2));
+      
       return res.status(400).json({
         success: false,
         message: 'Los parámetros name y phone_number son requeridos',
-        error: 'Parámetros faltantes'
+        error: 'Parámetros faltantes',
+        received: {
+          body: req.body,
+          hasName: !!name,
+          hasPhoneNumber: !!phone_number,
+          nameValue: name,
+          phoneNumberValue: phone_number
+        }
       });
     }
 
@@ -646,6 +672,101 @@ const createClientInterested = async (req, res) => {
   }
 };
 
+// Obtener todos los clientes interesados
+const getClientsInterested = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      search,
+      orderBy = 'created_at',
+      order = 'DESC'
+    } = req.query;
+
+    console.log('📥 ===== GET /api/clients/interested =====');
+    console.log('📋 Query params:', JSON.stringify(req.query, null, 2));
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    let clientsInterested;
+    let total;
+
+    // Si hay búsqueda, usar el método search
+    if (search) {
+      console.log(`🔍 Búsqueda: "${search}"`);
+      clientsInterested = await ClientInterested.search(search);
+      total = clientsInterested.length;
+    } else {
+      // Obtener todos con paginación
+      clientsInterested = await ClientInterested.findAll({
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        orderBy,
+        order
+      });
+      total = await ClientInterested.count();
+    }
+
+    // Convertir a JSON para el frontend
+    const clientsData = clientsInterested.map(client => client.toJSON());
+
+    console.log(`✅ Encontrados ${clientsData.length} clientes interesados (total: ${total})`);
+
+    res.json({
+      success: true,
+      data: clientsData,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      },
+      message: 'Clientes interesados obtenidos exitosamente'
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo clientes interesados:', error.message);
+    console.error('   Stack:', error.stack);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo clientes interesados',
+      error: error.message
+    });
+  }
+};
+
+// Obtener un cliente interesado por ID
+const getClientInterestedById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log(`📥 ===== GET /api/clients/interested/${id} =====`);
+
+    const clientInterested = await ClientInterested.findById(id);
+
+    if (!clientInterested) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente interesado no encontrado'
+      });
+    }
+
+    console.log(`✅ Cliente interesado encontrado: ID ${id}`);
+
+    res.json({
+      success: true,
+      data: clientInterested.toJSON(),
+      message: 'Cliente interesado obtenido exitosamente'
+    });
+  } catch (error) {
+    console.error('❌ Error obteniendo cliente interesado:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo cliente interesado',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getClients,
   getClientById,
@@ -656,5 +777,7 @@ module.exports = {
   syncClients,
   getClientStats,
   getPendingClientsByClientId,
-  createClientInterested
+  createClientInterested,
+  getClientsInterested,
+  getClientInterestedById
 }; 

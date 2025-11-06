@@ -110,8 +110,8 @@ class ClientInterested {
       const searchPattern = `%${searchTerm}%`;
       const result = await query(
         `SELECT * FROM "public"."clients_interested" 
-         WHERE data->>'client'->>'name' ILIKE $1 
-         OR data->>'client'->>'phone_number' ILIKE $1
+         WHERE (data->'client'->>'name' ILIKE $1 
+         OR data->'client'->>'phone_number' ILIKE $1)
          ORDER BY created_at DESC`,
         [searchPattern]
       );
