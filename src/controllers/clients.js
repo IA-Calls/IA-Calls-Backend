@@ -339,53 +339,103 @@ const getPendingClientsByClientId = async (req, res) => {
     const Group = require('../models/Group');
     const Client = require('../models/Client');
     
-    // Obtener todos los grupos (incluyendo inactivos) que fueron creados por el usuario específico
-    const groups = await Group.findAll({ includeInactive: true });
-    
     console.log(`🔍 Debug getPendingClientsByClientId:`);
     console.log(`   - clientId recibido: ${clientId} (tipo: ${typeof clientId})`);
-    console.log(`   - Total grupos encontrados: ${groups.length}`);
     
-    if (groups.length > 0) {
+    // Convertir clientId a número para comparación
+    const clientIdNum = parseInt(clientId);
+    
+    // Obtener todos los grupos directamente de la BD con query SQL para mayor control
+    const { query } = require('../config/database');
+    const groupsResult = await query(`
+      SELECT * FROM "public"."groups" 
+      WHERE created_by = $1
+      ORDER BY created_at DESC
+    `, [clientIdNum]);
+    
+    const groupsData = groupsResult.rows;
+    console.log(`   - Total grupos encontrados en BD para created_by=${clientIdNum}: ${groupsData.length}`);
+    
+    if (groupsData.length > 0) {
+      // Convertir datos de BD a objetos Group
+      const groups = groupsData.map(groupData => new Group(groupData));
+      
       // Mostrar información de cada grupo
       groups.forEach((group, index) => {
-        console.log(`   - Grupo ${index + 1}: ID=${group.id}, name="${group.name}", createdBy=${group.createdBy} (tipo: ${typeof group.createdBy}), createdByClient="${group.createdByClient}"`);
+        console.log(`   - Grupo ${index + 1}: ID=${group.id}, name="${group.name}", createdBy=${group.createdBy} (tipo: ${typeof group.createdBy})`);
       });
       
-      // Filtrar grupos que fueron creados por el usuario específico
-      // createdBy es INTEGER en la BD (referencia a users.id)
-      const clientIdNum = parseInt(clientId);
-      const groupsByClient = groups.filter(group => {
-        // Comparar como número (createdBy es INTEGER)
-        return group.createdBy === clientIdNum || group.createdBy === clientId;
-      });
+      // Procesar todos los grupos encontrados
+      const groupsByClient = groups;
       
-      console.log(`   - Grupos filtrados para usuario ${clientId} (createdBy=${clientIdNum}): ${groupsByClient.length}`);
+      console.log(`   - Procesando ${groupsByClient.length} grupos para usuario ${clientId}`);
       
       // Si hay grupos que coinciden con el clientId, procesarlos
       if (groupsByClient.length > 0) {
         // Para cada grupo del cliente, obtener sus clientes pendientes
         const groupsWithClients = await Promise.all(
           groupsByClient.map(async (group) => {
-            // Obtener clientes pendientes del grupo
-            const groupClients = await group.getClients({ 
-              limit: 100 // Obtener todos los clientes del grupo
-            });
-            
-            // Filtrar solo los clientes con status pending
-            const pendingClients = groupClients.filter(client => client.status === 'pending');
-            
-            return {
-              id: group.id,
-              name: group.name,
-              description: group.description,
-              prompt: group.prompt,
-              color: group.color,
-              favorite: group.favorite,
-              createdByClient: group.createdByClient, // Incluir el campo created-by
-              clientCount: pendingClients.length,
-              clients: pendingClients
-            };
+            try {
+              // Obtener clientes del grupo usando la relación client_groups
+              const { query } = require('../config/database');
+              const clientsResult = await query(`
+                SELECT c.* 
+                FROM "public"."clients" c
+                INNER JOIN "public"."client_groups" cg ON c.id = cg.client_id
+                WHERE cg.group_id = $1
+                ORDER BY c.created_at DESC
+              `, [group.id]);
+              
+              // Convertir a objetos Client
+              const Client = require('../models/Client');
+              const groupClients = clientsResult.rows.map(row => new Client(row));
+              
+              // Filtrar solo los clientes con status pending
+              const pendingClients = groupClients
+                .filter(client => client.status === 'pending')
+                .map(client => client.toJSON ? client.toJSON() : client);
+              
+              console.log(`   - Grupo "${group.name}" (ID: ${group.id}): ${groupClients.length} clientes totales, ${pendingClients.length} pendientes`);
+              
+              return {
+                id: group.id,
+                name: group.name,
+                description: group.description,
+                prompt: group.prompt,
+                color: group.color,
+                favorite: group.favorite,
+                createdBy: group.createdBy,
+                createdByClient: group.createdByClient,
+                agentId: group.agentId,
+                prefix: group.prefix,
+                selectedCountryCode: group.selectedCountryCode,
+                firstMessage: group.firstMessage,
+                phoneNumberId: group.phoneNumberId,
+                batchStatus: group.batchStatus,
+                batchId: group.batchId,
+                isActive: group.isActive,
+                clientCount: pendingClients.length,
+                totalClientCount: groupClients.length,
+                clients: pendingClients
+              };
+            } catch (error) {
+              console.error(`   ❌ Error obteniendo clientes del grupo ${group.id}:`, error.message);
+              return {
+                id: group.id,
+                name: group.name,
+                description: group.description,
+                prompt: group.prompt,
+                color: group.color,
+                favorite: group.favorite,
+                createdBy: group.createdBy,
+                createdByClient: group.createdByClient,
+                agentId: group.agentId,
+                clientCount: 0,
+                totalClientCount: 0,
+                clients: [],
+                error: error.message
+              };
+            }
           })
         );
 
@@ -414,20 +464,35 @@ const getPendingClientsByClientId = async (req, res) => {
           });
         }
 
-        const totalPendingClients = allPendingClients.length;
+        // Calcular total de clientes pendientes de todos los grupos
+        const totalPendingClients = groupsWithClients.reduce((sum, group) => sum + group.clientCount, 0);
+        const totalAllClients = groupsWithClients.reduce((sum, group) => sum + group.totalClientCount, 0);
 
+        console.log(`   ✅ Total: ${groupsWithClients.length} grupos, ${totalPendingClients} clientes pendientes, ${totalAllClients} clientes totales`);
+
+        // Agregar headers para evitar caché
+        res.set({
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        });
+        
         return res.json({
           success: true,
           data: groupsWithClients,
           totalGroups: groupsWithClients.length,
           totalClients: totalPendingClients,
-          clientId: clientId, // Incluir el ID del cliente en la respuesta
+          totalAllClients: totalAllClients,
+          clientId: clientId,
           message: `Datos locales organizados por grupos para el cliente ${clientId}`,
-          source: 'local'
+          source: 'local',
+          timestamp: new Date().toISOString()
         });
       }
       // Si no hay grupos que coincidan, continuar con el servicio externo
       console.log(`   ⚠️  No se encontraron grupos para el clientId ${clientId}, intentando servicio externo...`);
+    } else {
+      console.log(`   ⚠️  No se encontraron grupos en la BD para created_by=${clientIdNum}`);
     }
 
     // Si no hay grupos, intentar usar el servicio externo como fallback
@@ -480,6 +545,12 @@ const getPendingClientsByClientId = async (req, res) => {
       console.log(`ℹ️  Usando datos locales (servicio externo no disponible: ${fetchError.message})`);
       
       // Si el servicio externo falla, devolver respuesta vacía en lugar de error
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      
       return res.json({
         success: true,
         data: [],
@@ -488,7 +559,8 @@ const getPendingClientsByClientId = async (req, res) => {
         clientId: clientId,
         message: 'No hay clientes pendientes disponibles en este momento',
         source: 'local',
-        info: 'Servicio externo temporalmente no disponible'
+        info: 'Servicio externo temporalmente no disponible',
+        timestamp: new Date().toISOString()
       });
     }
     

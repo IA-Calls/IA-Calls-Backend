@@ -166,100 +166,20 @@ const getPendingClients = async (req, res) => {
   }
 };
 
-// Función para obtener clientes pendientes con filtro de cliente
-const getPendingClientsByClientId = async (req, res) => {
-  const { clientId } = req.params;
-  const { page = 1, limit = 5 } = req.query;
-  try {
-    const Group = require('./models/Group');
-    const Client = require('./models/Client');
-    
-    // Obtener todos los grupos activos
-    const groups = await Group.findAll();
-    
-    if (groups.length > 0) {
-      // Filtrar grupos que fueron creados por el cliente específico
-      const groupsByClient = groups.filter(group => group.createdByClient === clientId);
-      
-      // Para cada grupo del cliente, obtener sus clientes pendientes
-      const groupsWithClients = await Promise.all(
-        groupsByClient.map(async (group) => {
-          // Obtener clientes pendientes del grupo
-          const groupClients = await group.getClients({ 
-            limit: 100 // Obtener todos los clientes del grupo
-          });
-          
-          // Filtrar solo los clientes con status pending
-          const pendingClients = groupClients.filter(client => client.status === 'pending');
-          
-          return {
-            id: group.id,
-            name: group.name,
-            description: group.description,
-            prompt: group.prompt,
-            color: group.color,
-            favorite: group.favorite,
-            createdByClient: group.createdByClient, // Incluir el campo created-by
-            clientCount: pendingClients.length,
-            clients: pendingClients
-          };
-        })
-      );
-
-      // Solo contar clientes de los grupos del cliente específico
-      const totalPendingClients = groupsWithClients.reduce((total, group) => total + group.clientCount, 0);
-
-      return res.json({
-        success: true,
-        data: groupsWithClients,
-        totalGroups: groupsWithClients.length,
-        totalClients: totalPendingClients,
-        clientId: clientId, // Incluir el ID del cliente en la respuesta
-        message: `Datos locales organizados por grupos para el cliente ${clientId}`,
-        source: 'local'
-      });
-    }
-
-    // Si no hay grupos, usar el servicio externo como fallback
-    const response = await fetch(`https://calls-service-754698887417.us-central1.run.app/clients/pending?page=${page}&limit=${limit}`);
-    const data = await response.json();
-    
-    // Transformar la respuesta externa al formato esperado
-    const transformedData = {
-      success: true,
-      data: [{
-        id: null,
-        name: "Clientes Externos",
-        description: "Clientes obtenidos del servicio externo",
-        prompt: null,
-        color: "#3B82F6",
-        favorite: false,
-        createdByClient: clientId, // Incluir el campo created-by
-        clientCount: data.clients ? data.clients.length : 0,
-        clients: data.clients || []
-      }],
-      totalGroups: 1,
-      totalClients: data.total || 0,
-      clientId: clientId, // Incluir el ID del cliente en la respuesta
-      message: 'Datos del servicio externo',
-      source: 'external',
-      pagination: {
-        page: parseInt(page),
-        size: parseInt(limit),
-        total: data.total || 0
-      }
-    };
-    
-    res.json(transformedData);
-  } catch (err) {
-    res.status(500).json({ error: 'Proxy error', detail: err.message });
-  }
-};
+// Importar función del controlador para evitar duplicación
+// La función en app.js estaba usando createdByClient (incorrecto)
+// Ahora usa la función correcta del controlador que filtra por created_by
+const { getPendingClientsByClientId: getPendingClientsByClientIdController } = require('./controllers/clients');
+const getPendingClientsByClientId = getPendingClientsByClientIdController;
 
 // Middleware de autenticación para rutas de clientes pendientes
 const { authenticate } = require('./middleware/auth');
 
 // Rutas para clientes pendientes - disponibles en ambas ubicaciones
+// NOTA: Estas rutas requieren autenticación
+// Usar funciones del controlador para evitar duplicación
+const clientsController = require('./controllers/clients');
+// getPendingClients está definida arriba en app.js, no en el controlador
 app.get('/clients/pending', authenticate, getPendingClients);
 app.get('/clients/pending/:clientId', authenticate, getPendingClientsByClientId);
 
@@ -816,8 +736,9 @@ app.use('/api', indexRoutes);
 
 // Agregar las rutas de clientes pendientes también en la API
 // IMPORTANTE: Las rutas específicas deben ir ANTES que las rutas con parámetros
+// Usar funciones del controlador
 app.get('/api/clients/pending', authenticate, getPendingClients);
-app.get('/api/clients/pending/:clientId', authenticate, getPendingClientsByClientId);
+app.get('/api/clients/pending/:clientId', authenticate, clientsController.getPendingClientsByClientId);
 
 // Ruta de prueba
 app.get('/', (req, res) => {

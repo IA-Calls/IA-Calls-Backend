@@ -1,38 +1,91 @@
-#!/usr/bin/env node
+/**
+ * Script para probar el endpoint de clientes pendientes
+ */
 
-const axios = require('axios');
+const http = require('http');
 
-async function testPendingClients() {
-  console.log('🧪 Probando GET /api/clients/pending/5...\n');
+const clientId = process.argv[2] || '5';
 
-  try {
-    const response = await axios.get('http://localhost:5000/api/clients/pending/5');
-    
-    console.log('✅ Respuesta exitosa!');
-    console.log('📊 Datos:', JSON.stringify(response.data, null, 2));
+// Probar ambas rutas posibles
+const paths = [
+  `/api/clients/pending/${clientId}`,
+  `/clients/pending/${clientId}`
+];
 
-    const data = response.data;
-    console.log('\n📋 Resumen:');
-    console.log(`   - Total grupos: ${data.totalGroups}`);
-    console.log(`   - Total clientes: ${data.totalClients}`);
-    console.log(`   - Client ID: ${data.clientId}`);
-    console.log(`   - Fuente: ${data.source}`);
-    
-    if (data.data && data.data.length > 0) {
-      console.log('\n📝 Grupos encontrados:');
-      data.data.forEach((group, index) => {
-        console.log(`   ${index + 1}. ${group.name} (ID: ${group.id})`);
-        console.log(`      - Descripción: ${group.description}`);
-        console.log(`      - Clientes: ${group.clientCount}`);
+async function testEndpoint(path) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'localhost',
+      port: 5000,
+      path: path,
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        // Si necesitas autenticación, agrega el token aquí
+        // 'Authorization': 'Bearer YOUR_TOKEN_HERE'
+      }
+    };
+
+    console.log(`\n🔍 Probando: GET ${path}\n`);
+
+    const req = http.request(options, (res) => {
+      console.log(`📊 Status Code: ${res.statusCode}`);
+      
+      let data = '';
+
+      res.on('data', (chunk) => {
+        data += chunk;
       });
-    } else {
-      console.log('\n⚠️ No se encontraron grupos');
-    }
 
-  } catch (error) {
-    console.error('❌ Error:', error.response?.data || error.message);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          resolve({ path, statusCode: res.statusCode, data: json });
+        } catch (error) {
+          resolve({ path, statusCode: res.statusCode, data: data.toString() });
+        }
+      });
+    });
+
+    req.on('error', (error) => {
+      reject({ path, error: error.message });
+    });
+
+    req.setTimeout(5000, () => {
+      req.destroy();
+      reject({ path, error: 'Timeout' });
+    });
+
+    req.end();
+  });
+}
+
+async function testAll() {
+  for (const path of paths) {
+    try {
+      const result = await testEndpoint(path);
+      console.log(`\n✅ ${path}:`);
+      console.log(`   Status: ${result.statusCode}`);
+      if (typeof result.data === 'object') {
+        console.log(`   Success: ${result.data.success}`);
+        console.log(`   Total Groups: ${result.data.totalGroups || 0}`);
+        console.log(`   Total Clients: ${result.data.totalClients || 0}`);
+        if (result.data.data && result.data.data.length > 0) {
+          console.log(`   Grupos:`);
+          result.data.data.forEach((group, index) => {
+            console.log(`      ${index + 1}. ${group.name} (ID: ${group.id}) - ${group.clientCount || 0} pendientes`);
+          });
+        }
+        console.log(`\n   Respuesta completa:`);
+        console.log(JSON.stringify(result.data, null, 2));
+      } else {
+        console.log(`   Respuesta: ${result.data.substring(0, 200)}...`);
+      }
+    } catch (error) {
+      console.log(`\n❌ ${path}:`);
+      console.log(`   Error: ${error.error || error.message}`);
+    }
   }
 }
 
-testPendingClients();
-
+testAll();
