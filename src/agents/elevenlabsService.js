@@ -493,41 +493,123 @@ class ElevenLabsService {
         throw new Error('API key de ElevenLabs no configurada');
       }
 
-      const { callName, agentId, agentPhoneNumberId, recipients} = batchData;
+      const { callName, agentId, agentPhoneNumberId, recipients, scheduledTimeUnix } = batchData;
 
+      console.log('\n🔍 ========== INICIO DEBUG BATCH CALL ==========');
       console.log('📞 Iniciando batch call en ElevenLabs...');
       console.log(`📋 Nombre: ${callName}`);
       console.log(`🤖 Agente: ${agentId}`);
       console.log(`📱 Número: ${agentPhoneNumberId}`);
-      console.log(`👥 Destinatarios: ${recipients.length}`);
+      console.log(`👥 Destinatarios: ${recipients?.length || 0}`);
+      console.log(`⏰ Scheduled Time Unix: ${scheduledTimeUnix || 'null (inmediato)'}`);
 
+      // Validar datos requeridos
+      if (!callName) {
+        throw new Error('callName es requerido');
+      }
+      if (!agentId) {
+        throw new Error('agentId es requerido');
+      }
+      if (!agentPhoneNumberId) {
+        throw new Error('agentPhoneNumberId es requerido');
+      }
+      if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+        throw new Error('recipients debe ser un array no vacío');
+      }
+
+      // Validar estructura de recipients
+      console.log('\n📋 Validando estructura de recipients...');
+      recipients.forEach((recipient, index) => {
+        if (!recipient.phone_number) {
+          console.error(`❌ Recipient ${index} no tiene phone_number:`, recipient);
+        }
+      });
+
+      // Preparar payload
+      // IMPORTANTE: ElevenLabs requiere que las variables dinámicas estén dentro de:
+      // conversation_initiation_client_data.dynamic_variables
+      const scheduledTime = scheduledTimeUnix || Math.floor(Date.now() / 1000);
       const payload = {
         call_name: callName,
         agent_id: agentId,
-        agent_phone_number_id: agentPhoneNumberId,
-        scheduled_time_unix: Math.floor(Date.now() / 1000),
-        recipients: recipients.map(recipient => ({
-          phone_number: recipient.phone_number,
-          ...recipient.variables || {}
-        }))
+        recipients: recipients.map(recipient => {
+          const recipientPayload = {
+            phone_number: recipient.phone_number
+          };
+          
+          // CRÍTICO: Las variables dinámicas deben estar en conversation_initiation_client_data.dynamic_variables
+          // Esta es la estructura correcta según la documentación de ElevenLabs
+          if (recipient.variables && typeof recipient.variables === 'object') {
+            recipientPayload.conversation_initiation_client_data = {
+              dynamic_variables: recipient.variables
+            };
+          } else {
+            // Si no hay variables, crear un objeto vacío para evitar errores
+            recipientPayload.conversation_initiation_client_data = {
+              dynamic_variables: {}
+            };
+          }
+          
+          return recipientPayload;
+        })
       };
+      
+      // Agregar agent_phone_number_id solo si está presente (opcional según la API)
+      if (agentPhoneNumberId) {
+        payload.agent_phone_number_id = agentPhoneNumberId;
+      }
+      
+      // Agregar scheduled_time_unix solo si está presente
+      if (scheduledTimeUnix) {
+        payload.scheduled_time_unix = scheduledTime;
+      }
 
-      console.log('📋 Payload del batch call:', JSON.stringify(payload, null, 2));
+      // IMPRIMIR JSON COMPLETO QUE SE ENVÍA A ELEVENLABS (SIN FORMATO, TAL COMO SE ENVÍA)
+      console.log('\n📤 ========== JSON ENVIADO A ELEVENLABS (SIN FORMATO) ==========');
+      console.log(JSON.stringify(payload));
+      console.log('===================================================\n');
+
+      // Log adicional de información útil
+      console.log(`📊 Resumen del payload:`);
+      console.log(`   - call_name: ${payload.call_name}`);
+      console.log(`   - agent_id: ${payload.agent_id}`);
+      if (payload.agent_phone_number_id) {
+        console.log(`   - agent_phone_number_id: ${payload.agent_phone_number_id}`);
+      }
+      if (payload.scheduled_time_unix) {
+        const scheduledDate = new Date(payload.scheduled_time_unix * 1000);
+        console.log(`   - scheduled_time_unix: ${payload.scheduled_time_unix} (${scheduledDate.toISOString()})`);
+      } else {
+        console.log(`   - scheduled_time_unix: No especificado (llamada inmediata)`);
+      }
+      console.log(`   - recipients count: ${payload.recipients.length}`);
+      console.log(`   - Primer recipient (SIN FORMATO):`, JSON.stringify(payload.recipients[0]));
+      if (payload.recipients.length > 1) {
+        console.log(`   - Último recipient (SIN FORMATO):`, JSON.stringify(payload.recipients[payload.recipients.length - 1]));
+      }
 
       // Intentar con ElevenLabs real primero
       try {
+        console.log(`\n🌐 Enviando petición POST a: ${this.baseUrl}/convai/batch-calling/submit`);
+        console.log(`🔑 API Key presente: ${this.apiKey ? 'Sí (oculta)' : 'No'}`);
+        
         const response = await axios.post(`${this.baseUrl}/convai/batch-calling/submit`, payload, {
           headers: {
             'xi-api-key': this.apiKey,
             'Content-Type': 'application/json',
             'User-Agent': 'IA-Calls-Backend/1.0.0'
           },
-          timeout: 10000
+          timeout: 30000 // Aumentar timeout a 30 segundos
         });
 
-        console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+        console.log(`\n📡 ========== RESPUESTA DE ELEVENLABS ==========`);
+        console.log(`Status: ${response.status} ${response.statusText}`);
+        console.log(`Headers (SIN FORMATO):`, JSON.stringify(response.headers));
+        console.log(`Data (SIN FORMATO):`, JSON.stringify(response.data));
+        console.log('===================================================\n');
+
         const result = response.data;
-        console.log('✅ Batch call iniciado exitosamente:', result);
+        console.log('✅ Batch call iniciado exitosamente');
 
         // El monitoreo global del servidor detectará automáticamente este batch
         const batchId = result.batch_id || result.id;
@@ -535,6 +617,8 @@ class ElevenLabsService {
           console.log(`📊 Batch ID: ${batchId}`);
           console.log(`⚡ El servicio de monitoreo global detectará y procesará este batch automáticamente`);
         }
+
+        console.log('🔍 ========== FIN DEBUG BATCH CALL ==========\n');
 
         return {
           success: true,
@@ -544,16 +628,95 @@ class ElevenLabsService {
         };
 
       } catch (elevenLabsError) {
-        console.error('❌ Error de ElevenLabs:', elevenLabsError.response?.data || elevenLabsError.message);
-        throw new Error(elevenLabsError.message);
+        console.error('\n❌ ========== ERROR DE ELEVENLABS ==========');
+        console.error('Error completo:', elevenLabsError);
+        
+        let errorMessage = 'Error desconocido de ElevenLabs';
+        let errorCode = 'ELEVENLABS_ERROR';
+        let errorDetails = null;
+        
+        if (elevenLabsError.response) {
+          console.error(`Status: ${elevenLabsError.response.status}`);
+          console.error(`Status Text: ${elevenLabsError.response.statusText}`);
+          console.error(`Headers (SIN FORMATO):`, JSON.stringify(elevenLabsError.response.headers));
+          console.error(`Data (SIN FORMATO):`, JSON.stringify(elevenLabsError.response.data));
+          
+          // Extraer mensaje de error de la respuesta
+          const responseData = elevenLabsError.response.data;
+          if (responseData) {
+            if (responseData.detail) {
+              if (typeof responseData.detail === 'string') {
+                errorMessage = responseData.detail;
+              } else if (responseData.detail.message) {
+                errorMessage = responseData.detail.message;
+              } else if (responseData.detail.error) {
+                errorMessage = responseData.detail.error;
+              } else {
+                errorMessage = JSON.stringify(responseData.detail);
+              }
+            } else if (responseData.message) {
+              errorMessage = responseData.message;
+            } else if (responseData.error) {
+              errorMessage = responseData.error;
+            } else if (typeof responseData === 'string') {
+              errorMessage = responseData;
+            }
+            
+            // Detectar tipos específicos de errores
+            if (errorMessage.includes('Missing required dynamic variables')) {
+              errorCode = 'MISSING_VARIABLES';
+              // Extraer qué variables faltan
+              const missingVarsMatch = errorMessage.match(/\{'([^']+)'\}/);
+              if (missingVarsMatch) {
+                errorDetails = `La variable '${missingVarsMatch[1]}' es requerida pero no está disponible en los datos de los destinatarios.`;
+              }
+            } else if (errorMessage.includes('agent_id') || errorMessage.includes('agent')) {
+              errorCode = 'INVALID_AGENT';
+            } else if (errorMessage.includes('phone_number') || errorMessage.includes('phone')) {
+              errorCode = 'INVALID_PHONE';
+            } else if (elevenLabsError.response.status === 401) {
+              errorCode = 'UNAUTHORIZED';
+              errorMessage = 'Error de autenticación con ElevenLabs';
+            } else if (elevenLabsError.response.status === 404) {
+              errorCode = 'NOT_FOUND';
+              errorMessage = 'Recurso no encontrado en ElevenLabs';
+            } else if (elevenLabsError.response.status >= 500) {
+              errorCode = 'ELEVENLABS_SERVER_ERROR';
+              errorMessage = 'Error en el servidor de ElevenLabs';
+            }
+          }
+        } else if (elevenLabsError.request) {
+          console.error('Request enviado pero sin respuesta:', elevenLabsError.request);
+          errorCode = 'NO_RESPONSE';
+          errorMessage = 'No se recibió respuesta de ElevenLabs';
+          errorDetails = 'El servidor de ElevenLabs no respondió. Verifica tu conexión a internet.';
+        } else {
+          console.error('Error configurando request:', elevenLabsError.message);
+          errorMessage = elevenLabsError.message;
+        }
+        console.error('===========================================\n');
+        
+        // Lanzar error con información estructurada
+        const structuredError = new Error(errorMessage);
+        structuredError.errorCode = errorCode;
+        structuredError.details = errorDetails;
+        structuredError.originalError = elevenLabsError.response?.data || elevenLabsError.message;
+        throw structuredError;
       }
 
     } catch (error) {
-      console.error('❌ Error crítico en batch call:', error);
+      console.error('\n❌ ========== ERROR CRÍTICO EN BATCH CALL ==========');
+      console.error('Error:', error);
+      console.error('Stack:', error.stack);
+      console.error('===================================================\n');
+      
       return {
         success: false,
         error: error.message,
-        message: 'Error crítico al procesar batch call'
+        message: 'Error crítico al procesar batch call',
+        details: error.details || error.stack,
+        errorCode: error.errorCode || 'BATCH_CALL_CRITICAL_ERROR',
+        originalError: error.originalError || error.message
       };
     }
   }

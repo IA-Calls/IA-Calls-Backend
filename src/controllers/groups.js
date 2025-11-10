@@ -1138,6 +1138,7 @@ const startBatchCall = async (req, res) => {
             email: client.email || '',
             company: client.company || '',
             position: client.position || '',
+            category: client.category || '', // Agregar categoría del cliente
             // Agregar variables del grupo si existen
             ...group.variables || {}
           }
@@ -1153,7 +1154,7 @@ const startBatchCall = async (req, res) => {
     }
 
     console.log(`📱 Destinatarios válidos: ${recipients.length}`);
-    console.log(`📋 Primeros 2 destinatarios:`, recipients.slice(0, 2));
+    console.log(`📋 Primeros 2 destinatarios (SIN FORMATO):`, JSON.stringify(recipients.slice(0, 2)));
 
     // Preparar datos del batch call
     const batchData = {
@@ -1164,12 +1165,17 @@ const startBatchCall = async (req, res) => {
       scheduledTimeUnix: scheduledTimeUnix
     };
 
-    console.log(`🚀 Preparando batch call con datos:`);
+    console.log(`\n🚀 ========== PREPARANDO BATCH CALL ==========`);
     console.log(`   📞 Nombre: ${batchData.callName}`);
     console.log(`   🤖 Agente ID: ${batchData.agentId}`);
     console.log(`   📱 Phone Number ID: ${batchData.agentPhoneNumberId} (${group.phoneNumberId ? 'del grupo' : 'del body'})`);
     console.log(`   👥 Destinatarios: ${batchData.recipients.length}`);
     console.log(`   ⏰ Programado: ${batchData.scheduledTimeUnix || 'Inmediato'}`);
+    
+    // Imprimir batchData completo antes de enviarlo (SIN FORMATO)
+    console.log(`\n📋 BatchData completo que se enviará a submitBatchCall (SIN FORMATO):`);
+    console.log(JSON.stringify(batchData));
+    console.log(`===========================================\n`);
 
     // Iniciar el batch call en ElevenLabs
     console.log(`🔄 Enviando batch call a ElevenLabs...`);
@@ -1216,10 +1222,32 @@ const startBatchCall = async (req, res) => {
     } else {
       console.error(`❌ Error iniciando batch call: ${batchResult.error}`);
       
+      // Usar información estructurada del error si está disponible
+      const errorMessage = batchResult.error || 'Error desconocido al iniciar las llamadas';
+      const errorDetails = batchResult.details || null;
+      const errorCode = batchResult.errorCode || 'BATCH_CALL_ERROR';
+      
+      // Mensajes más amigables según el código de error
+      let userFriendlyMessage = errorMessage;
+      if (errorCode === 'MISSING_VARIABLES') {
+        userFriendlyMessage = 'Faltan variables requeridas en el mensaje del agente';
+      } else if (errorCode === 'INVALID_AGENT') {
+        userFriendlyMessage = 'Error con el ID del agente';
+      } else if (errorCode === 'INVALID_PHONE') {
+        userFriendlyMessage = 'Error con los números telefónicos';
+      } else if (errorCode === 'NO_RESPONSE') {
+        userFriendlyMessage = 'No se recibió respuesta de ElevenLabs';
+      } else if (errorCode === 'UNAUTHORIZED') {
+        userFriendlyMessage = 'Error de autenticación con ElevenLabs';
+      }
+      
       res.status(400).json({
         success: false,
-        message: 'Error iniciando las llamadas',
-        error: batchResult.error
+        message: userFriendlyMessage,
+        error: userFriendlyMessage,
+        details: errorDetails || 'Revisa la configuración del agente y los datos de los destinatarios.',
+        originalError: batchResult.originalError || batchResult.error, // Incluir error original para debugging
+        errorCode: errorCode
       });
     }
 
@@ -1230,10 +1258,29 @@ const startBatchCall = async (req, res) => {
     console.error('❌ Mensaje:', error.message);
     console.error('❌ === FIN ERROR ===');
     
+    // Crear mensaje de error legible
+    let errorMessage = 'Error inesperado al procesar la solicitud de llamadas';
+    let errorDetails = error.message;
+    
+    // Clasificar errores comunes
+    if (error.message.includes('no encontrado')) {
+      errorMessage = 'Recurso no encontrado';
+      errorDetails = 'El grupo, usuario o agente especificado no existe.';
+    } else if (error.message.includes('requerido') || error.message.includes('required')) {
+      errorMessage = 'Datos incompletos';
+      errorDetails = 'Faltan datos requeridos para iniciar las llamadas.';
+    } else if (error.message.includes('timeout')) {
+      errorMessage = 'Tiempo de espera agotado';
+      errorDetails = 'La operación tardó demasiado. Intenta nuevamente.';
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Error interno del servidor',
-      error: error.message
+      message: errorMessage,
+      error: errorMessage,
+      details: errorDetails,
+      originalError: error.message,
+      errorCode: 'INTERNAL_SERVER_ERROR'
     });
   }
 };
