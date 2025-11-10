@@ -1085,9 +1085,8 @@ const startBatchCall = async (req, res) => {
     console.log(`👤 Usuario: ${user.username}`);
 
     // Obtener los clientes del grupo (SIN LÍMITE - siempre obtiene todos)
-    console.log(`🔍 Obteniendo clientes del grupo...`);
     const clients = await group.getClients();
-    console.log(`📊 Clientes obtenidos:`, clients ? clients.length : 0);
+    const totalClientsInGroup = clients ? clients.length : 0;
     
     if (!clients || clients.length === 0) {
       console.error(`❌ Error: El grupo "${group.name}" no tiene clientes asignados`);
@@ -1097,13 +1096,12 @@ const startBatchCall = async (req, res) => {
       });
     }
 
-    console.log('👥 Clientes encontrados:');
-    console.log(JSON.stringify(clients.slice(0, 3), null, 2));
-
 
     // Preparar los destinatarios para ElevenLabs
-    const recipients = clients
-      .filter(client => client.phone) // Solo clientes con teléfono
+    const clientsWithPhone = clients.filter(client => client.phone);
+    const clientsWithoutPhone = totalClientsInGroup - clientsWithPhone.length;
+    
+    const recipients = clientsWithPhone
       .map(client => {
         // Limpiar y formatear número telefónico
         let phoneNumber = client.phone.toString().trim();
@@ -1114,8 +1112,6 @@ const startBatchCall = async (req, res) => {
         // Usar el prefijo del grupo en lugar del +57 quemado
         const groupPrefix = group.prefix || '+57';
         const countryCode = group.selectedCountryCode || 'CO';
-        
-        console.log(`🌍 Usando prefijo del grupo: ${groupPrefix} (${countryCode})`);
         
         // Si no tiene código de país, agregar el prefijo del grupo
         if (!phoneNumber.startsWith('+')) {
@@ -1128,8 +1124,6 @@ const startBatchCall = async (req, res) => {
             phoneNumber = groupPrefix + phoneNumber;
           }
         }
-        
-        console.log(`📱 Número formateado: ${client.phone} → ${phoneNumber} (prefijo: ${groupPrefix})`);
         
         return {
           phone_number: phoneNumber,
@@ -1153,9 +1147,6 @@ const startBatchCall = async (req, res) => {
       });
     }
 
-    console.log(`📱 Destinatarios válidos: ${recipients.length}`);
-    console.log(`📋 Primeros 2 destinatarios (SIN FORMATO):`, JSON.stringify(recipients.slice(0, 2)));
-
     // Preparar datos del batch call
     const batchData = {
       callName: `Llamada ${group.name} - ${new Date().toLocaleDateString('es-ES')}`,
@@ -1165,13 +1156,6 @@ const startBatchCall = async (req, res) => {
       scheduledTimeUnix: scheduledTimeUnix
     };
 
-    console.log(`\n🚀 ========== PREPARANDO BATCH CALL ==========`);
-    console.log(`   📞 Nombre: ${batchData.callName}`);
-    console.log(`   🤖 Agente ID: ${batchData.agentId}`);
-    console.log(`   📱 Phone Number ID: ${batchData.agentPhoneNumberId} (${group.phoneNumberId ? 'del grupo' : 'del body'})`);
-    console.log(`   👥 Destinatarios: ${batchData.recipients.length}`);
-    console.log(`   ⏰ Programado: ${batchData.scheduledTimeUnix || 'Inmediato'}`);
-    
     // Imprimir batchData completo antes de enviarlo (SIN FORMATO)
     console.log(`\n📋 BatchData completo que se enviará a submitBatchCall (SIN FORMATO):`);
     console.log(JSON.stringify(batchData));
@@ -1215,6 +1199,8 @@ const startBatchCall = async (req, res) => {
           groupName: group.name,
           agentId: group.agentId, // NUEVO: Usar el agentId del grupo
           recipientsCount: recipients.length,
+          totalClientsInGroup: totalClientsInGroup,
+          excludedClients: clientsWithoutPhone,
           callName: batchData.callName,
           batchData: batchResult.data
         }
