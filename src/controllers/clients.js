@@ -157,9 +157,6 @@ const createClient = async (req, res) => {
 // Crear cliente simple (solo nombre y número) y enviar WhatsApp
 const createClientSimple = async (req, res) => {
   try {
-    // Log del body recibido
-    console.log('📥 POST /api/clients/simple - Body recibido:', JSON.stringify(req.body, null, 2));
-    
     const { name, phone_number } = req.body;
 
     if (!name || !phone_number) {
@@ -177,30 +174,17 @@ const createClientSimple = async (req, res) => {
       status: 'pending'
     });
 
-    console.log(`✅ Cliente creado: ID=${client.id}, name="${name}", phone="${phoneNumberStr}"`);
-
     // Enviar mensaje de WhatsApp
     try {
-      console.log(`📱 Preparando envío WhatsApp a: ${phoneNumberStr}`);
       const whatsappService = getTwilioService();
       const message = `Hola ${name} te mandaré la información del evento de manera inmediata`;
-      console.log(`💬 Mensaje: "${message}"`);
       
       const whatsappResult = await whatsappService.sendMessage(phoneNumberStr, message, name);
       
       if (whatsappResult.success) {
-        console.log(`✅ WhatsApp enviado exitosamente`);
-        console.log(`   - Message ID: ${whatsappResult.messageId}`);
-        console.log(`   - Status: ${whatsappResult.status}`);
-        console.log(`   - To: ${whatsappResult.data?.to || 'N/A'}`);
       } else {
-        console.error(`❌ Error enviando WhatsApp:`);
-        console.error(`   - Error: ${whatsappResult.error?.message || 'Error desconocido'}`);
-        console.error(`   - Code: ${whatsappResult.error?.code || 'N/A'}`);
       }
     } catch (whatsappError) {
-      console.error(`❌ Error en envío de WhatsApp: ${whatsappError.message}`);
-      console.error(`   Stack: ${whatsappError.stack}`);
     }
 
     res.status(201).json({
@@ -209,14 +193,13 @@ const createClientSimple = async (req, res) => {
       data: client
     });
   } catch (error) {
-    console.error('❌ Error creando cliente simple:', error.message);
     res.status(500).json({
       success: false,
       message: 'Error creando cliente',
       error: error.message
     });
   }
-};
+};    
 
 // Actualizar cliente
 const updateClient = async (req, res) => {
@@ -338,11 +321,7 @@ const getPendingClientsByClientId = async (req, res) => {
     const { page = 1, limit = 5 } = req.query;
     
     const Group = require('../models/Group');
-    const Client = require('../models/Client');
-    
-    console.log(`🔍 Debug getPendingClientsByClientId:`);
-    console.log(`   - clientId recibido: ${clientId} (tipo: ${typeof clientId})`);
-    
+    const Client = require('../models/Client');    
     // Convertir clientId a número para comparación
     const clientIdNum = parseInt(clientId);
     
@@ -355,21 +334,13 @@ const getPendingClientsByClientId = async (req, res) => {
     `, [clientIdNum]);
     
     const groupsData = groupsResult.rows;
-    console.log(`   - Total grupos encontrados en BD para created_by=${clientIdNum}: ${groupsData.length}`);
     
     if (groupsData.length > 0) {
       // Convertir datos de BD a objetos Group
       const groups = groupsData.map(groupData => new Group(groupData));
       
-      // Mostrar información de cada grupo
-      groups.forEach((group, index) => {
-        console.log(`   - Grupo ${index + 1}: ID=${group.id}, name="${group.name}", createdBy=${group.createdBy} (tipo: ${typeof group.createdBy})`);
-      });
-      
       // Procesar todos los grupos encontrados
       const groupsByClient = groups;
-      
-      console.log(`   - Procesando ${groupsByClient.length} grupos para usuario ${clientId}`);
       
       // Si hay grupos que coinciden con el clientId, procesarlos
       if (groupsByClient.length > 0) {
@@ -396,8 +367,6 @@ const getPendingClientsByClientId = async (req, res) => {
                 .filter(client => client.status === 'pending')
                 .map(client => client.toJSON ? client.toJSON() : client);
               
-              console.log(`   - Grupo "${group.name}" (ID: ${group.id}): ${groupClients.length} clientes totales, ${pendingClients.length} pendientes`);
-              
               return {
                 id: group.id,
                 name: group.name,
@@ -420,7 +389,6 @@ const getPendingClientsByClientId = async (req, res) => {
                 clients: pendingClients
               };
             } catch (error) {
-              console.error(`   ❌ Error obteniendo clientes del grupo ${group.id}:`, error.message);
               return {
                 id: group.id,
                 name: group.name,
@@ -469,8 +437,6 @@ const getPendingClientsByClientId = async (req, res) => {
         const totalPendingClients = groupsWithClients.reduce((sum, group) => sum + group.clientCount, 0);
         const totalAllClients = groupsWithClients.reduce((sum, group) => sum + group.totalClientCount, 0);
 
-        console.log(`   ✅ Total: ${groupsWithClients.length} grupos, ${totalPendingClients} clientes pendientes, ${totalAllClients} clientes totales`);
-
         // Agregar headers para evitar caché
         res.set({
           'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -491,9 +457,6 @@ const getPendingClientsByClientId = async (req, res) => {
         });
       }
       // Si no hay grupos que coincidan, continuar con el servicio externo
-      console.log(`   ⚠️  No se encontraron grupos para el clientId ${clientId}, intentando servicio externo...`);
-    } else {
-      console.log(`   ⚠️  No se encontraron grupos en la BD para created_by=${clientIdNum}`);
     }
 
     // Si no hay grupos, intentar usar el servicio externo como fallback
@@ -503,15 +466,12 @@ const getPendingClientsByClientId = async (req, res) => {
       // Verificar que la respuesta sea exitosa
       if (!response.ok) {
         // No es un error crítico, solo un fallback que no está disponible
-        console.log(`⚠️  Servicio externo no disponible (${response.status}), usando datos locales vacíos`);
         throw new Error(`Servicio externo no disponible (${response.status})`);
       }
       
       // Verificar que el Content-Type sea JSON
       const contentType = response.headers.get('content-type');
       if (!contentType || !contentType.includes('application/json')) {
-        // Intentar leer el texto para logging, pero no bloquear
-        console.log(`⚠️  Servicio externo devolvió ${contentType || 'unknown'}, usando datos locales vacíos`);
         throw new Error('Servicio externo devolvió formato no-JSON');
       }
       
@@ -543,7 +503,6 @@ const getPendingClientsByClientId = async (req, res) => {
     } catch (fetchError) {
       // Esto es esperado cuando el servicio externo no está disponible
       // No es un error crítico, solo un fallback
-      console.log(`ℹ️  Usando datos locales (servicio externo no disponible: ${fetchError.message})`);
       
       // Si el servicio externo falla, devolver respuesta vacía en lugar de error
       res.set({
@@ -605,29 +564,10 @@ const getClientStats = async (req, res) => {
 // Crear cliente interesado (nuevo endpoint)
 const createClientInterested = async (req, res) => {
   try {
-    // Logs detallados de lo que llega
-    console.log('📥 ===== REQUEST RECIBIDO EN /api/clients/interested =====');
-    console.log('📋 Headers:', JSON.stringify(req.headers, null, 2));
-    console.log('📋 Body completo:', JSON.stringify(req.body, null, 2));
-    console.log('📋 Body tipo:', typeof req.body);
-    console.log('📋 Body es array?', Array.isArray(req.body));
-    console.log('📋 Body keys:', Object.keys(req.body || {}));
-    console.log('📋 Query params:', JSON.stringify(req.query, null, 2));
-    console.log('📋 Params:', JSON.stringify(req.params, null, 2));
-    
     const { name, phone_number } = req.body;
-    
-    console.log('📋 Valores extraídos:');
-    console.log(`   - name: "${name}" (tipo: ${typeof name}, existe: ${!!name})`);
-    console.log(`   - phone_number: "${phone_number}" (tipo: ${typeof phone_number}, existe: ${!!phone_number})`);
 
     // Validar que se reciban los parámetros requeridos
     if (!name || !phone_number) {
-      console.error('❌ Validación fallida:');
-      console.error(`   - name presente: ${!!name}`);
-      console.error(`   - phone_number presente: ${!!phone_number}`);
-      console.error('📋 Body recibido:', JSON.stringify(req.body, null, 2));
-      
       return res.status(400).json({
         success: false,
         message: 'Los parámetros name y phone_number son requeridos',
@@ -642,19 +582,12 @@ const createClientInterested = async (req, res) => {
       });
     }
 
-    console.log('📝 Creando cliente interesado:');
-    console.log(`   - Nombre: ${name}`);
-    console.log(`   - Teléfono: ${phone_number}`);
-
     // Crear el cliente interesado usando el modelo
     const clientInterested = await ClientInterested.create({
       name: String(name).trim(),
       phone_number: String(phone_number).trim()
     });
 
-    console.log('✅ Cliente interesado creado exitosamente');
-    console.log(`   - ID: ${clientInterested.id}`);
-    console.log(`   - Data: ${JSON.stringify(clientInterested.data, null, 2)}`);
 
     res.status(201).json({
       success: true,
@@ -662,8 +595,6 @@ const createClientInterested = async (req, res) => {
       data: clientInterested.toJSON()
     });
   } catch (error) {
-    console.error('❌ Error creando cliente interesado:', error.message);
-    console.error('   Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error guardando cliente interesado',
@@ -683,9 +614,6 @@ const getClientsInterested = async (req, res) => {
       order = 'DESC'
     } = req.query;
 
-    console.log('📥 ===== GET /api/clients/interested =====');
-    console.log('📋 Query params:', JSON.stringify(req.query, null, 2));
-
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let clientsInterested;
@@ -693,7 +621,6 @@ const getClientsInterested = async (req, res) => {
 
     // Si hay búsqueda, usar el método search
     if (search) {
-      console.log(`🔍 Búsqueda: "${search}"`);
       clientsInterested = await ClientInterested.search(search);
       total = clientsInterested.length;
     } else {
@@ -710,8 +637,6 @@ const getClientsInterested = async (req, res) => {
     // Convertir a JSON para el frontend
     const clientsData = clientsInterested.map(client => client.toJSON());
 
-    console.log(`✅ Encontrados ${clientsData.length} clientes interesados (total: ${total})`);
-
     res.json({
       success: true,
       data: clientsData,
@@ -724,8 +649,6 @@ const getClientsInterested = async (req, res) => {
       message: 'Clientes interesados obtenidos exitosamente'
     });
   } catch (error) {
-    console.error('❌ Error obteniendo clientes interesados:', error.message);
-    console.error('   Stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error obteniendo clientes interesados',
@@ -739,8 +662,6 @@ const getClientInterestedById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log(`📥 ===== GET /api/clients/interested/${id} =====`);
-
     const clientInterested = await ClientInterested.findById(id);
 
     if (!clientInterested) {
@@ -750,15 +671,12 @@ const getClientInterestedById = async (req, res) => {
       });
     }
 
-    console.log(`✅ Cliente interesado encontrado: ID ${id}`);
-
     res.json({
       success: true,
       data: clientInterested.toJSON(),
       message: 'Cliente interesado obtenido exitosamente'
     });
   } catch (error) {
-    console.error('❌ Error obteniendo cliente interesado:', error.message);
     res.status(500).json({
       success: false,
       message: 'Error obteniendo cliente interesado',
