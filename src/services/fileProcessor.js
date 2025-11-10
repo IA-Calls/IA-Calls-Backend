@@ -55,6 +55,7 @@ class FileProcessor {
       const phoneIndex = this.findColumnIndex(headers, ['telefono', 'phone', 'celular', 'movil', 'tel']);
       const emailIndex = this.findColumnIndex(headers, ['email', 'correo', 'e-mail']);
       const addressIndex = this.findColumnIndex(headers, ['direccion', 'address', 'domicilio']);
+      const categoryIndex = this.findColumnIndex(headers, ['categoria', 'category', 'categoría', 'cat']);
       
       if (nameIndex === -1 || phoneIndex === -1) {
         throw new Error('No se encontraron las columnas requeridas: nombre y teléfono');
@@ -83,7 +84,7 @@ class FileProcessor {
             phone: this.cleanPhone(row[phoneIndex]),
             email: emailIndex !== -1 ? this.cleanValue(row[emailIndex]) : null,
             address: addressIndex !== -1 ? this.cleanValue(row[addressIndex]) : null,
-            category: 'imported',
+            category: categoryIndex !== -1 ? (this.cleanValue(row[categoryIndex]) || 'General') : 'General',
             status: 'pending',
             metadata: {
               source: documentName,

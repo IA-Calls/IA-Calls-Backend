@@ -219,20 +219,19 @@ class Group {
     }
   }
 
-  // Obtener clientes del grupo
+  // Obtener clientes del grupo (SIN LÍMITES - siempre obtiene todos)
   async getClients(options = {}) {
     try {
-      const { limit = 50, offset = 0 } = options;
+      // SIEMPRE obtener todos los clientes sin límite
+      const queryText = `
+        SELECT c.*, cg.assigned_at, cg.assigned_by 
+        FROM "public"."clients" c
+        JOIN "public"."client_groups" cg ON c.id = cg.client_id
+        WHERE cg.group_id = $1 AND c.is_active = true
+        ORDER BY cg.assigned_at DESC
+      `;
       
-      const result = await query(
-        `SELECT c.*, cg.assigned_at, cg.assigned_by 
-         FROM "public"."clients" c
-         JOIN "public"."client_groups" cg ON c.id = cg.client_id
-         WHERE cg.group_id = $1 AND c.is_active = true
-         ORDER BY cg.assigned_at DESC
-         LIMIT $2 OFFSET $3`,
-        [this.id, limit, offset]
-      );
+      const result = await query(queryText, [this.id]);
       
       return result.rows;
     } catch (error) {

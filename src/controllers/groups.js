@@ -1084,7 +1084,7 @@ const startBatchCall = async (req, res) => {
     console.log(`🤖 Agente del grupo: ${group.agentId}`);
     console.log(`👤 Usuario: ${user.username}`);
 
-    // Obtener los clientes del grupo
+    // Obtener los clientes del grupo (SIN LÍMITE - siempre obtiene todos)
     console.log(`🔍 Obteniendo clientes del grupo...`);
     const clients = await group.getClients();
     console.log(`📊 Clientes obtenidos:`, clients ? clients.length : 0);
