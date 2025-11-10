@@ -243,16 +243,40 @@ class Group {
   // Agregar cliente al grupo
   async addClient(clientId, assignedBy) {
     try {
+      // Primero verificar si ya existe la relación
+      const existing = await query(
+        `SELECT * FROM "public"."client_groups" 
+         WHERE client_id = $1 AND group_id = $2`,
+        [clientId, this.id]
+      );
+      
+      if (existing.rows.length > 0) {
+        // Ya existe, retornar el existente
+        return existing.rows[0];
+      }
+      
+      // Si no existe, insertar
       const result = await query(
         `INSERT INTO "public"."client_groups" (client_id, group_id, assigned_by, assigned_at)
          VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (client_id, group_id) DO NOTHING
          RETURNING *`,
         [clientId, this.id, assignedBy]
       );
       
       return result.rows[0];
     } catch (error) {
+      // Si el error es de constraint única, significa que ya existe
+      if (error.code === '23505' || error.message.includes('unique') || error.message.includes('duplicate')) {
+        // Buscar y retornar el registro existente
+        const existing = await query(
+          `SELECT * FROM "public"."client_groups" 
+           WHERE client_id = $1 AND group_id = $2`,
+          [clientId, this.id]
+        );
+        if (existing.rows.length > 0) {
+          return existing.rows[0];
+        }
+      }
       throw new Error(`Error agregando cliente al grupo: ${error.message}`);
     }
   }
@@ -288,27 +312,41 @@ class Group {
     try {
       if (clientIds.length === 0) return 0;
       
-      // Construir query dinámico para múltiples inserciones
-      const values = [];
-      const placeholders = [];
-      let paramCount = 1;
+      let insertedCount = 0;
       
+      // Insertar uno por uno para manejar conflictos correctamente
+      // Esto es más seguro que usar ON CONFLICT si la constraint no existe
       for (const clientId of clientIds) {
-        placeholders.push(`($${paramCount}, $${paramCount + 1}, $${paramCount + 2}, NOW())`);
-        values.push(clientId, this.id, assignedBy);
-        paramCount += 3;
+        try {
+          // Verificar si ya existe
+          const existing = await query(
+            `SELECT id FROM "public"."client_groups" 
+             WHERE client_id = $1 AND group_id = $2`,
+            [clientId, this.id]
+          );
+          
+          if (existing.rows.length === 0) {
+            // No existe, insertar
+            await query(
+              `INSERT INTO "public"."client_groups" (client_id, group_id, assigned_by, assigned_at)
+               VALUES ($1, $2, $3, NOW())`,
+              [clientId, this.id, assignedBy]
+            );
+            insertedCount++;
+          }
+          // Si ya existe, simplemente continuar sin contar
+        } catch (insertError) {
+          // Si es error de constraint única, ignorar (ya existe)
+          if (insertError.code === '23505' || insertError.message.includes('unique') || insertError.message.includes('duplicate')) {
+            // Ya existe, continuar
+            continue;
+          }
+          // Otro tipo de error, loguear pero continuar
+          console.error(`Error insertando cliente ${clientId} al grupo ${this.id}:`, insertError.message);
+        }
       }
       
-      const queryText = `
-        INSERT INTO "public"."client_groups" (client_id, group_id, assigned_by, assigned_at)
-        VALUES ${placeholders.join(', ')}
-        ON CONFLICT (client_id, group_id) DO NOTHING
-        RETURNING *
-      `;
-      
-      const result = await query(queryText, values);
-      
-      return result.rows.length;
+      return insertedCount;
       
     } catch (error) {
       console.error('Error asignando lote de clientes:', error);

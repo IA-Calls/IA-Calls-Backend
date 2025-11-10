@@ -4,15 +4,24 @@ const db = require('../config/database');
 class GCPDocument {
   constructor(data) {
     this.id = data.id;
-    this.fileName = data.file_name;
-    this.originalName = data.original_name;
-    this.bucketUrl = data.bucket_url;
-    this.publicUrl = data.public_url;
-    this.downloadUrl = data.download_url;
+    // Manejar ambas estructuras: nueva (file_name) y antigua (filename)
+    this.fileName = data.file_name || data.filename;
+    this.originalName = data.original_name || data.fileName || data.filename;
+    // Manejar bucket_url (nueva) vs bucket_name + file_path (antigua)
+    if (data.bucket_url) {
+      this.bucketUrl = data.bucket_url;
+    } else if (data.bucket_name && data.file_path) {
+      this.bucketUrl = `gs://${data.bucket_name}/${data.file_path}`;
+    } else {
+      this.bucketUrl = null;
+    }
+    this.publicUrl = data.public_url || null;
+    this.downloadUrl = data.download_url || null;
     this.fileSize = data.file_size;
-    this.contentType = data.content_type;
-    this.documentType = data.document_type;
-    this.groupId = data.group_id;
+    // Manejar content_type (nueva) vs mime_type (antigua)
+    this.contentType = data.content_type || data.mime_type;
+    this.documentType = data.document_type || 'general';
+    this.groupId = data.group_id || null;
     this.uploadedBy = data.uploaded_by;
     this.metadata = data.metadata;
     this.createdAt = data.created_at;
@@ -21,31 +30,86 @@ class GCPDocument {
 
   // Crear un nuevo documento
   static async create(data) {
-    const query = `
-      INSERT INTO gcp_documents (
-        file_name, original_name, bucket_url, public_url, download_url, 
-        file_size, content_type, document_type, group_id, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING *
-    `;
-
-    const values = [
-      data.fileName,
-      data.originalName,
-      data.bucketUrl,
-      data.publicUrl,
-      data.downloadUrl,
-      data.fileSize,
-      data.contentType,
-      data.documentType || 'general',
-      data.groupId,
-      data.uploadedBy,
-      JSON.stringify(data.metadata || {})
-    ];
-
     try {
-      const result = await db.query(query, values);
-      return new GCPDocument(result.rows[0]);
+      // Intentar primero con la estructura nueva (schema.sql)
+      let query, values;
+      
+      try {
+        query = `
+          INSERT INTO gcp_documents (
+            file_name, original_name, bucket_url, public_url, download_url, 
+            file_size, content_type, document_type, group_id, uploaded_by, metadata
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          RETURNING *
+        `;
+
+        values = [
+          data.fileName,
+          data.originalName,
+          data.bucketUrl,
+          data.publicUrl,
+          data.downloadUrl,
+          data.fileSize,
+          data.contentType,
+          data.documentType || 'general',
+          data.groupId,
+          data.uploadedBy,
+          JSON.stringify(data.metadata || {})
+        ];
+
+        const result = await db.query(query, values);
+        return new GCPDocument(result.rows[0]);
+      } catch (newStructureError) {
+        // Si falla, intentar con la estructura antigua (migrate.js)
+        if (newStructureError.message && newStructureError.message.includes('column') && 
+            (newStructureError.message.includes('file_name') || newStructureError.message.includes('bucket_url'))) {
+          
+          console.log('⚠️ Usando estructura antigua de gcp_documents (migrate.js)');
+          
+          // Estructura antigua: filename, bucket_name, file_path, mime_type
+          query = `
+            INSERT INTO gcp_documents (
+              filename, bucket_name, file_path, file_size, mime_type, 
+              uploaded_by, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING *
+          `;
+
+          // Extraer bucket_name del bucket_url (gs://bucket-name/path)
+          const bucketName = data.bucketUrl ? data.bucketUrl.replace('gs://', '').split('/')[0] : 'ia_calls_documents';
+          const filePath = data.bucketUrl ? data.bucketUrl.replace(`gs://${bucketName}/`, '') : data.fileName;
+
+          values = [
+            data.fileName,
+            bucketName,
+            filePath,
+            data.fileSize,
+            data.contentType || 'application/octet-stream',
+            data.uploadedBy,
+            JSON.stringify(data.metadata || {})
+          ];
+
+          const result = await db.query(query, values);
+          
+          // Adaptar la respuesta a la estructura esperada
+          const adaptedRow = {
+            ...result.rows[0],
+            file_name: result.rows[0].filename,
+            original_name: data.originalName || result.rows[0].filename,
+            bucket_url: `gs://${result.rows[0].bucket_name}/${result.rows[0].file_path}`,
+            public_url: data.publicUrl || null,
+            download_url: data.downloadUrl || null,
+            content_type: result.rows[0].mime_type,
+            document_type: data.documentType || 'general',
+            group_id: data.groupId || null
+          };
+          
+          return new GCPDocument(adaptedRow);
+        } else {
+          // Si no es un error de columna, re-lanzar el error original
+          throw newStructureError;
+        }
+      }
     } catch (error) {
       console.error('Error creando documento GCP:', error);
       throw error;
@@ -68,13 +132,32 @@ class GCPDocument {
 
   // Buscar por nombre de archivo
   static async findByFileName(fileName) {
-    const query = 'SELECT * FROM gcp_documents WHERE file_name = $1';
-    
     try {
-      const result = await db.query(query, [fileName]);
+      // Intentar primero con file_name (estructura nueva)
+      let query = 'SELECT * FROM gcp_documents WHERE file_name = $1';
+      let result = await db.query(query, [fileName]);
+      
+      if (result.rows.length === 0) {
+        // Si no encuentra, intentar con filename (estructura antigua)
+        query = 'SELECT * FROM gcp_documents WHERE filename = $1';
+        result = await db.query(query, [fileName]);
+      }
+      
       if (result.rows.length === 0) return null;
       return new GCPDocument(result.rows[0]);
     } catch (error) {
+      // Si falla con file_name, intentar con filename
+      if (error.message && error.message.includes('column') && error.message.includes('file_name')) {
+        try {
+          const query = 'SELECT * FROM gcp_documents WHERE filename = $1';
+          const result = await db.query(query, [fileName]);
+          if (result.rows.length === 0) return null;
+          return new GCPDocument(result.rows[0]);
+        } catch (fallbackError) {
+          console.error('Error buscando documento GCP por nombre:', fallbackError);
+          throw fallbackError;
+        }
+      }
       console.error('Error buscando documento GCP por nombre:', error);
       throw error;
     }

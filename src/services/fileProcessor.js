@@ -124,13 +124,26 @@ class FileProcessor {
       if (process.env.NODE_ENV === 'production') {
         console.log(`☁️ Subiendo archivo a Google Cloud Storage...`);
         const { uploadDocumentToGCP } = require('../utils/helpers');
-        uploadResult = await uploadDocumentToGCP(processedBase64Data, fileName, {
-          documentType: 'processed_excel',
-          source: 'file_processor',
-          totalClients: clientsData.length,
-          originalDocument: documentName
-        });
-        console.log(`✅ Archivo subido exitosamente a GCP: ${uploadResult.fileName}`);
+        try {
+          uploadResult = await uploadDocumentToGCP(processedBase64Data, fileName, {
+            documentType: 'processed_excel',
+            source: 'file_processor',
+            totalClients: clientsData.length,
+            originalDocument: documentName
+          });
+          console.log(`✅ Archivo subido exitosamente a GCP: ${uploadResult.fileName}`);
+        } catch (gcpError) {
+          console.error(`❌ Error crítico subiendo a GCP:`, gcpError);
+          // En producción, el archivo DEBE subirse a GCP, así que lanzamos el error
+          // pero con un mensaje más claro
+          if (gcpError.message && gcpError.message.includes('facturación')) {
+            throw new Error(`Error de facturación de Google Cloud: ${gcpError.message}. Por favor, contacta al administrador del sistema para habilitar la facturación.`);
+          } else if (gcpError.message && gcpError.message.includes('permisos')) {
+            throw new Error(`Error de permisos de Google Cloud: ${gcpError.message}. Por favor, contacta al administrador del sistema para verificar los permisos de la cuenta de servicio.`);
+          } else {
+            throw new Error(`Error subiendo archivo a Google Cloud Storage: ${gcpError.message}. Por favor, verifica la configuración de GCP.`);
+          }
+        }
       } else {
         console.log(`📁 Guardando archivo localmente (desarrollo)...`);
         const { saveDocumentLocally } = require('../utils/helpers');

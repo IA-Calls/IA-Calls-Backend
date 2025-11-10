@@ -104,13 +104,36 @@ const uploadDocumentToGCP = async (base64Data, fileName, metadata = {}) => {
     };
 
     // Configurar Google Cloud Storage para el bucket de documentos
+    console.log(`🔧 Configurando Google Cloud Storage...`);
+    console.log(`   Project ID: ${process.env.GOOGLE_CLOUD_PROJECT_ID}`);
+    console.log(`   Client Email: ${process.env.GOOGLE_CLOUD_CLIENT_EMAIL}`);
+    
     const storage = new Storage({
       credentials: credentials,
       projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
     });
 
-    const bucketName = 'ia_calls_documents';
+    const bucketName = process.env.GOOGLE_CLOUD_BUCKET_NAME || 'ia_calls_documents';
+    console.log(`📦 Usando bucket: ${bucketName}`);
+    
     const bucket = storage.bucket(bucketName);
+    
+    // Verificar que el bucket existe y tenemos acceso
+    console.log(`🔍 Verificando acceso al bucket...`);
+    try {
+      const [exists] = await bucket.exists();
+      if (!exists) {
+        throw new Error(`El bucket "${bucketName}" no existe en el proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}". Por favor, crea el bucket o verifica el nombre.`);
+      }
+      console.log(`✅ Bucket "${bucketName}" existe y es accesible`);
+    } catch (bucketError) {
+      console.error(`❌ Error verificando bucket:`, bucketError);
+      // Si el error es de facturación, dar un mensaje más claro
+      if (bucketError.message && bucketError.message.includes('billing')) {
+        throw new Error(`Error de facturación de Google Cloud: La cuenta de facturación del proyecto está deshabilitada. Por favor, habilita la facturación en Google Cloud Console para el proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}".`);
+      }
+      throw bucketError;
+    }
 
     // Generar nombre único para el archivo
     const generateUniqueFileName = (originalName, prefix = 'group-documents') => {
@@ -150,9 +173,11 @@ const uploadDocumentToGCP = async (base64Data, fileName, metadata = {}) => {
 
     // Convertir base64 a buffer
     const buffer = Buffer.from(base64Data, 'base64');
+    console.log(`📊 Tamaño del archivo: ${(buffer.length / 1024).toFixed(2)} KB`);
     
     // Generar nombre único para el archivo
     const uniqueFileName = generateUniqueFileName(fileName);
+    console.log(`📝 Nombre del archivo en GCS: ${uniqueFileName}`);
     const file = bucket.file(uniqueFileName);
 
     // Configurar metadatos del archivo
@@ -165,8 +190,30 @@ const uploadDocumentToGCP = async (base64Data, fileName, metadata = {}) => {
       }
     };
 
-    // Subir el archivo
-    await file.save(buffer, fileMetadata);
+    // Subir el archivo con manejo de errores mejorado
+    console.log(`⬆️ Subiendo archivo a GCS...`);
+    try {
+      await file.save(buffer, fileMetadata);
+      console.log(`✅ Archivo subido exitosamente a GCS`);
+    } catch (uploadError) {
+      console.error(`❌ Error durante la subida:`, uploadError);
+      
+      // Manejar errores específicos de GCP
+      if (uploadError.code === 403) {
+        if (uploadError.message && uploadError.message.includes('billing')) {
+          throw new Error(`Error de facturación: La cuenta de facturación del proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}" está deshabilitada. Por favor, habilita la facturación en Google Cloud Console.`);
+        } else {
+          throw new Error(`Error de permisos (403): La cuenta de servicio "${process.env.GOOGLE_CLOUD_CLIENT_EMAIL}" no tiene permisos para escribir en el bucket "${bucketName}". Verifica que la cuenta tenga el rol "Storage Object Admin" o "Storage Object Creator".`);
+        }
+      } else if (uploadError.code === 404) {
+        throw new Error(`Bucket no encontrado (404): El bucket "${bucketName}" no existe en el proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}".`);
+      } else if (uploadError.code === 401) {
+        throw new Error(`Error de autenticación (401): Las credenciales de Google Cloud no son válidas. Verifica las variables de entorno.`);
+      }
+      
+      // Re-lanzar el error original si no es uno de los casos conocidos
+      throw uploadError;
+    }
 
     // Obtener URL pública
     const publicUrl = `https://storage.googleapis.com/${bucketName}/${uniqueFileName}`;
@@ -190,8 +237,58 @@ const uploadDocumentToGCP = async (base64Data, fileName, metadata = {}) => {
     };
 
   } catch (error) {
-    console.error('Error subiendo documento a GCP:', error);
-    throw new Error(`Error subiendo documento: ${error.message}`);
+    console.error('\n❌ ========== ERROR SUBIENDO DOCUMENTO A GCP ==========');
+    console.error('Error completo:', error);
+    
+    // Extraer información útil del error
+    let errorMessage = error.message || 'Error desconocido al subir documento';
+    let errorDetails = null;
+    
+    // Si es un error de GCP con respuesta, extraer más detalles
+    if (error.response && error.response.data) {
+      let errorData = error.response.data;
+      
+      // Si errorData es un string, intentar parsearlo como JSON
+      if (typeof errorData === 'string') {
+        try {
+          errorData = JSON.parse(errorData);
+        } catch (parseError) {
+          // Si no se puede parsear, usar el string directamente
+          console.error('No se pudo parsear la respuesta de error como JSON');
+        }
+      }
+      
+      if (errorData && errorData.error) {
+        errorMessage = errorData.error.message || errorMessage;
+        if (errorData.error.errors && errorData.error.errors.length > 0) {
+          errorDetails = errorData.error.errors.map(e => e.message || e).join('; ');
+        }
+        
+        // Detectar específicamente errores de facturación
+        if (errorData.error.message && errorData.error.message.includes('billing')) {
+          errorMessage = `Error de facturación de Google Cloud: La cuenta de facturación del proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}" está deshabilitada. Por favor, habilita la facturación en Google Cloud Console (https://console.cloud.google.com/billing).`;
+        } else if (errorData.error.code === 403) {
+          if (errorData.error.message && errorData.error.message.includes('billing')) {
+            errorMessage = `Error de facturación (403): La cuenta de facturación del proyecto "${process.env.GOOGLE_CLOUD_PROJECT_ID}" está deshabilitada. Habilita la facturación en Google Cloud Console.`;
+          } else {
+            errorMessage = `Error de permisos (403): La cuenta de servicio "${process.env.GOOGLE_CLOUD_CLIENT_EMAIL}" no tiene permisos suficientes. Verifica los roles IAM.`;
+          }
+        }
+      }
+    }
+    
+    // Si el error ya tiene un mensaje claro (de nuestros throws anteriores), usarlo
+    if (error.message && (error.message.includes('facturación') || error.message.includes('permisos') || error.message.includes('no existe'))) {
+      errorMessage = error.message;
+    }
+    
+    console.error(`Mensaje: ${errorMessage}`);
+    if (errorDetails) {
+      console.error(`Detalles: ${errorDetails}`);
+    }
+    console.error('===================================================\n');
+    
+    throw new Error(errorMessage);
   }
 };
 
