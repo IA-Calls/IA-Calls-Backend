@@ -1870,9 +1870,14 @@ const getGroupCallStats = async (req, res) => {
 const getGroupBatchStatus = async (req, res) => {
   try {
     const { id } = req.params; // ID del grupo
-    const { userId } = req.query;
+    const { userId, page = 1, limit = 10 } = req.query;
+    
+    // Convertir a números y validar
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, Math.min(1000, parseInt(limit) || 10)); // Máximo 1000 por página
+    const offset = (pageNum - 1) * limitNum;
 
-    console.log(`📊 Consultando estado de batch call para grupo: ${id}`);
+    console.log(`📊 Consultando estado de batch call para grupo: ${id} (página ${pageNum}, límite ${limitNum})`);
 
     // 1. Buscar el grupo
     const group = await Group.findById(id);
@@ -1914,13 +1919,127 @@ const getGroupBatchStatus = async (req, res) => {
         console.log(`✅ Status sin cambios (${newStatus}), usando datos de DB`);
       }
       
-      // 5. Enriquecer datos si se especifica userId
+      // 5. Obtener todos los recipients desde la BD si ElevenLabs solo devuelve 10
+      let allRecipients = statusResult.data.recipients || [];
+      const expectedRecipientsCount = group.batchTotalRecipients || 0;
+      
+      // Si ElevenLabs devolvió menos recipients de los esperados, obtener todos desde la BD
+      if (allRecipients.length < expectedRecipientsCount && expectedRecipientsCount > 0) {
+        console.log(`⚠️ ElevenLabs devolvió solo ${allRecipients.length} recipients, pero se esperaban ${expectedRecipientsCount}. Obteniendo todos desde BD...`);
+        
+        try {
+          // Buscar el batch call en la BD
+          const batchCallRecord = await BatchCall.findByBatchId(group.batchId);
+          if (batchCallRecord) {
+            // Obtener todos los call records desde la BD (SIN LÍMITE)
+            const allCallRecords = await CallRecord.findByBatchCallId(batchCallRecord.id);
+            
+            console.log(`📊 Obtenidos ${allCallRecords.length} call records desde BD`);
+            
+            if (allCallRecords.length > 0) {
+              // Convertir call records a formato de recipients
+              const recipientsFromDB = allCallRecords.map(record => ({
+                id: record.recipientId || record.id,
+                phone_number: record.phoneNumber,
+                conversation_id: record.conversationId,
+                status: record.status,
+                call_duration_secs: record.callDurationSecs,
+                transcript_summary: record.transcriptSummary,
+                transcript: record.fullTranscript,
+                audio_url: record.audioUrl,
+                audio_file_name: record.audioFileName,
+                audio_size: record.audioSize,
+                audio_content_type: record.audioContentType,
+                call_started_at: record.callStartedAt,
+                call_ended_at: record.callEndedAt,
+                client_name: record.clientName,
+                client_email: record.clientEmail
+              }));
+              
+              // Combinar: usar los de ElevenLabs si están actualizados, sino usar los de BD
+              // Crear un mapa de recipients de ElevenLabs por phone_number
+              const elevenLabsRecipientsMap = new Map();
+              allRecipients.forEach(r => {
+                if (r.phone_number) {
+                  elevenLabsRecipientsMap.set(r.phone_number, r);
+                }
+              });
+              
+              // Usar los de ElevenLabs si existen, sino usar los de BD
+              allRecipients = recipientsFromDB.map(dbRecipient => {
+                const elevenLabsRecipient = elevenLabsRecipientsMap.get(dbRecipient.phone_number);
+                // Si existe en ElevenLabs, usar ese (más actualizado), sino usar el de BD
+                return elevenLabsRecipient || dbRecipient;
+              });
+              
+              console.log(`✅ Total de recipients combinados: ${allRecipients.length}`);
+            } else {
+              // Si no hay call records en BD, obtener todos los clientes del grupo y crear recipients básicos
+              console.log(`⚠️ No hay call records en BD aún. Obteniendo clientes del grupo para crear recipients...`);
+              const groupClients = await group.getClients();
+              
+              // Crear recipients básicos desde los clientes del grupo
+              const recipientsFromClients = groupClients
+                .filter(client => client.phone)
+                .map(client => {
+                  // Formatear número telefónico
+                  let phoneNumber = client.phone.toString().trim();
+                  phoneNumber = phoneNumber.replace(/[^\d+]/g, '');
+                  const groupPrefix = group.prefix || '+57';
+                  if (!phoneNumber.startsWith('+')) {
+                    const prefixWithoutPlus = groupPrefix.replace('+', '');
+                    if (phoneNumber.startsWith(prefixWithoutPlus)) {
+                      phoneNumber = '+' + phoneNumber;
+                    } else {
+                      phoneNumber = groupPrefix + phoneNumber;
+                    }
+                  }
+                  
+                  return {
+                    phone_number: phoneNumber,
+                    status: 'pending', // Estado por defecto
+                    client_name: client.name,
+                    client_email: client.email
+                  };
+                });
+              
+              // Combinar con los de ElevenLabs
+              const elevenLabsRecipientsMap = new Map();
+              allRecipients.forEach(r => {
+                if (r.phone_number) {
+                  elevenLabsRecipientsMap.set(r.phone_number, r);
+                }
+              });
+              
+              allRecipients = recipientsFromClients.map(clientRecipient => {
+                const elevenLabsRecipient = elevenLabsRecipientsMap.get(clientRecipient.phone_number);
+                return elevenLabsRecipient || clientRecipient;
+              });
+              
+              console.log(`✅ Total de recipients desde clientes del grupo: ${allRecipients.length}`);
+            }
+          }
+        } catch (dbError) {
+          console.error(`⚠️ Error obteniendo recipients desde BD:`, dbError);
+          // Continuar con los de ElevenLabs si hay error
+        }
+      }
+      
+      // 6. Aplicar paginación a los recipients
+      const totalRecipients = allRecipients.length;
+      const paginatedRecipients = allRecipients.slice(offset, offset + limitNum);
+      const totalPages = Math.ceil(totalRecipients / limitNum);
+      
+      // Actualizar los recipients paginados en los datos
+      statusResult.data.recipients = paginatedRecipients;
+      
+      // 7. Enriquecer datos si se especifica userId (solo para los recipients paginados)
       let enrichedData = statusResult.data;
       if (userId) {
         enrichedData = await enrichBatchCallData(statusResult.data, userId);
       }
 
-      // 6. Obtener grupo actualizado para estadísticas
+      // 8. Obtener grupo actualizado para estadísticas
       const updatedGroup = await Group.findById(id);
 
       res.json({
@@ -1931,21 +2050,79 @@ const getGroupBatchStatus = async (req, res) => {
           batchCall: enrichedData,
           hasBeenCalled: true,
           lastSync: new Date().toISOString()
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalRecipients,
+          totalPages: totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1
         }
       });
     } else {
-      // Si hay error con ElevenLabs, devolver datos de la DB
-      console.log(`⚠️ Error con ElevenLabs: ${statusResult.error}, devolviendo datos de DB`);
+      // Si hay error con ElevenLabs, intentar obtener recipients desde la BD
+      console.log(`⚠️ Error con ElevenLabs: ${statusResult.error}, obteniendo datos de DB...`);
+      
+      let allRecipientsFromDB = [];
+      try {
+        // Buscar el batch call en la BD
+        const batchCallRecord = await BatchCall.findByBatchId(group.batchId);
+        if (batchCallRecord) {
+          // Obtener todos los call records desde la BD (SIN LÍMITE)
+          const allCallRecords = await CallRecord.findByBatchCallId(batchCallRecord.id);
+          
+          if (allCallRecords.length > 0) {
+            // Convertir call records a formato de recipients
+            allRecipientsFromDB = allCallRecords.map(record => ({
+              id: record.recipientId || record.id,
+              phone_number: record.phoneNumber,
+              conversation_id: record.conversationId,
+              status: record.status,
+              call_duration_secs: record.callDurationSecs,
+              transcript_summary: record.transcriptSummary,
+              transcript: record.fullTranscript,
+              audio_url: record.audioUrl,
+              audio_file_name: record.audioFileName,
+              audio_size: record.audioSize,
+              audio_content_type: record.audioContentType,
+              call_started_at: record.callStartedAt,
+              call_ended_at: record.callEndedAt,
+              client_name: record.clientName,
+              client_email: record.clientEmail
+            }));
+          }
+        }
+      } catch (dbError) {
+        console.error(`⚠️ Error obteniendo recipients desde BD:`, dbError);
+      }
+      
+      // Aplicar paginación a los recipients de BD
+      const totalRecipients = allRecipientsFromDB.length;
+      const paginatedRecipients = allRecipientsFromDB.slice(offset, offset + limitNum);
+      const totalPages = Math.ceil(totalRecipients / limitNum);
       
       res.json({
         success: true,
         message: 'Estado del batch call (datos de DB)',
         data: {
           group: group.toJSON(),
-          batchCall: null,
+          batchCall: {
+            id: group.batchId,
+            status: group.batchStatus || 'unknown',
+            recipients: paginatedRecipients
+          },
           hasBeenCalled: true,
           lastSync: group.updatedAt,
           warning: 'Datos de ElevenLabs no disponibles'
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalRecipients,
+          totalPages: totalPages,
+          hasNextPage: pageNum < totalPages,
+          hasPrevPage: pageNum > 1
         }
       });
     }
