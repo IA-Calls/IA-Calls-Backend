@@ -102,6 +102,72 @@ class ElevenLabsService {
   }
 
   /**
+   * Obtener voces disponibles en ElevenLabs
+   * @returns {Promise<Object>} - Lista de voces disponibles con voice_id, name y verified_languages
+   */
+  async getVoices() {
+    try {
+      if (!this.apiKey) {
+        throw new Error('API key de ElevenLabs no configurada');
+      }
+
+      console.log('🎤 Obteniendo voces disponibles en ElevenLabs...');
+
+      // La API de voces está en v2, no v1
+      const response = await axios.get('https://api.elevenlabs.io/v2/voices', {
+        headers: {
+          'xi-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'IA-Calls-Backend/1.0.0'
+        }
+      });
+
+      console.log(`📡 Respuesta de ElevenLabs: ${response.status} ${response.statusText}`);
+      
+      const voicesData = response.data?.voices || [];
+      console.log(`📊 Voces encontradas: ${voicesData.length}`);
+
+      // Filtrar solo los campos necesarios: voice_id, name, y verified_languages
+      const filteredVoices = voicesData.map(voice => ({
+        voice_id: voice.voice_id,
+        name: voice.name,
+        verified_languages: voice.verified_languages || []
+      }));
+
+      return {
+        success: true,
+        voices: filteredVoices,
+        count: filteredVoices.length,
+        message: 'Voces obtenidas exitosamente'
+      };
+
+    } catch (error) {
+      console.error('❌ Error obteniendo voces de ElevenLabs:', error);
+      
+      let errorMessage = error.message;
+      if (error.response) {
+        const errorData = error.response.data;
+        if (errorData && typeof errorData === 'object') {
+          if (errorData.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+          } else {
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+          }
+        } else {
+          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+        }
+        console.error('❌ Error en respuesta de ElevenLabs:', errorData);
+      }
+      
+      return {
+        success: false,
+        error: errorMessage,
+        message: 'Error obteniendo voces'
+      };
+    }
+  }
+
+  /**
    * Crear un agente conversacional en ElevenLabs
    * @param {Object} options - Opciones para personalizar el agente
    * @returns {Promise<Object>} - Respuesta con el agent_id creado

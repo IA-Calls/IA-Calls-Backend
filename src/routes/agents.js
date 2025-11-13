@@ -49,6 +49,50 @@ router.get('/phone-numbers', async (req, res) => {
   }
 });
 
+// GET /api/agents/voices - Obtener voces disponibles (SIN AUTENTICACIÓN)
+router.get('/voices', async (req, res) => {
+  try {
+    console.log('🎤 === SOLICITUD DE VOCES ===');
+    console.log('👤 Usuario: Acceso público (sin autenticación)');
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    const result = await elevenlabsService.getVoices();
+
+    if (result.success) {
+      console.log(`✅ Voces obtenidas exitosamente: ${result.count} voces disponibles`);
+      
+      return res.status(200).json({
+        success: true,
+        message: result.message,
+        data: {
+          voices: result.voices,
+          count: result.count,
+          timestamp: new Date().toISOString()
+        }
+      });
+    } else {
+      console.error('❌ Error obteniendo voces:', result.error);
+      
+      return res.status(500).json({
+        success: false,
+        message: result.message,
+        error: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error inesperado en getVoices:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al obtener voces',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // GET /api/agents - Listar todos los agentes (público, sin autenticación)
 // IMPORTANTE: Esta ruta debe ir ANTES del middleware de autenticación y antes de /:agentId
 router.get('/', agentsController.listAgents);
