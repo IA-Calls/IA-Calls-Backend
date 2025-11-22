@@ -57,8 +57,9 @@ class FileProcessor {
       const addressIndex = this.findColumnIndex(headers, ['direccion', 'address', 'domicilio']);
       const categoryIndex = this.findColumnIndex(headers, ['categoria', 'category', 'categoría', 'cat']);
       
-      if (nameIndex === -1 || phoneIndex === -1) {
-        throw new Error('No se encontraron las columnas requeridas: nombre y teléfono');
+      // Solo el teléfono es requerido
+      if (phoneIndex === -1) {
+        throw new Error('No se encontró la columna requerida: teléfono');
       }
       
       // Procesar datos (excluyendo la fila de encabezados)
@@ -79,9 +80,23 @@ class FileProcessor {
         }
         
         if (row && row.length > 0) {
+          const phone = this.cleanPhone(row[phoneIndex]);
+          
+          // Solo procesar si tiene teléfono válido
+          if (!phone) {
+            continue;
+          }
+          
+          // Obtener nombre, si no existe usar un valor por defecto
+          let name = nameIndex !== -1 ? this.cleanValue(row[nameIndex]) : null;
+          if (!name || name.trim() === '') {
+            // Si no hay nombre, usar "Cliente" + teléfono como valor por defecto
+            name = `Cliente ${phone}`;
+          }
+          
           const clientData = {
-            name: this.cleanValue(row[nameIndex]),
-            phone: this.cleanPhone(row[phoneIndex]),
+            name: name,
+            phone: phone,
             email: emailIndex !== -1 ? this.cleanValue(row[emailIndex]) : null,
             address: addressIndex !== -1 ? this.cleanValue(row[addressIndex]) : null,
             category: categoryIndex !== -1 ? (this.cleanValue(row[categoryIndex]) || 'General') : 'General',
@@ -93,11 +108,8 @@ class FileProcessor {
             }
           };
           
-          // Solo agregar si tiene nombre y teléfono válidos
-          if (clientData.name && clientData.phone) {
-            clientsData.push(clientData);
-            validClients++;
-          }
+          clientsData.push(clientData);
+          validClients++;
         }
       }
       

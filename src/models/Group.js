@@ -110,9 +110,12 @@ class Group {
   }
 
   // Buscar grupo por ID
-  static async findById(id) {
+  static async findById(id, includeInactive = false) {
     try {
-      const result = await query('SELECT * FROM "public"."groups" WHERE id = $1 AND is_active = true', [id]);
+      const whereClause = includeInactive 
+        ? 'WHERE id = $1' 
+        : 'WHERE id = $1 AND is_active = true';
+      const result = await query(`SELECT * FROM "public"."groups" ${whereClause}`, [id]);
       
       if (result.rows.length === 0) {
         return null;

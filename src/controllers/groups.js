@@ -406,11 +406,20 @@ const deleteGroup = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const group = await Group.findById(id);
+    // Buscar el grupo incluyendo inactivos para poder eliminarlo
+    const group = await Group.findById(id, true);
     if (!group) {
       return res.status(404).json({
         success: false,
         message: 'Grupo no encontrado'
+      });
+    }
+
+    // Si ya está inactivo, retornar éxito (ya está eliminado)
+    if (!group.isActive) {
+      return res.json({
+        success: true,
+        message: 'El grupo ya estaba eliminado'
       });
     }
 
