@@ -206,18 +206,87 @@ class Group {
   // Eliminar grupo (soft delete)
   async delete() {
     try {
+      // Asegurar que el ID sea un número
+      const groupId = parseInt(this.id);
+      
+      if (isNaN(groupId)) {
+        throw new Error(`ID de grupo inválido: ${this.id}`);
+      }
+      
+      console.log(`🗑️ Intentando eliminar grupo con ID: ${groupId} (tipo: ${typeof groupId})`);
+      
+      // Verificar qué base de datos estamos usando
+      const dbInfo = await query('SELECT current_database() as db_name, current_user as db_user, version() as db_version');
+      if (dbInfo.rows.length > 0) {
+        console.log(`🗄️ Base de datos actual: ${dbInfo.rows[0].db_name}`);
+        console.log(`👤 Usuario de BD: ${dbInfo.rows[0].db_user}`);
+      }
+      
+      // Ejecutar la actualización con conversión explícita a boolean
       const result = await query(
-        'UPDATE "public"."groups" SET is_active = false, updated_at = NOW() WHERE id = $1 RETURNING *',
-        [this.id]
+        'UPDATE "public"."groups" SET is_active = $1::boolean, updated_at = NOW() WHERE id = $2 RETURNING id, name, is_active',
+        [false, groupId]
       );
 
+      console.log(`📊 Resultado de la query DELETE: ${result.rows.length} filas afectadas`);
+      if (result.rows.length > 0) {
+        console.log(`📋 Datos retornados:`, result.rows[0]);
+      }
+
       if (result.rows.length === 0) {
+        console.error(`❌ No se encontró grupo con ID: ${groupId}`);
         throw new Error('Grupo no encontrado');
       }
 
+      // Verificar que realmente se actualizó
+      const updatedGroup = result.rows[0];
+      if (updatedGroup.is_active !== false) {
+        console.error(`❌ ERROR: El grupo se actualizó pero is_active sigue siendo ${updatedGroup.is_active}`);
+        throw new Error('Error: El grupo no se eliminó correctamente');
+      }
+
+      // Verificar nuevamente con una query separada para confirmar
+      const verifyResult = await query(
+        'SELECT id, name, is_active, updated_at FROM "public"."groups" WHERE id = $1',
+        [groupId]
+      );
+
+      if (verifyResult.rows.length > 0) {
+        const verified = verifyResult.rows[0];
+        console.log(`🔍 Verificación post-eliminación:`, verified);
+        console.log(`📊 is_active en BD: ${verified.is_active} (tipo: ${typeof verified.is_active})`);
+        
+        // PostgreSQL puede retornar boolean como true/false o como string
+        const isActiveValue = verified.is_active;
+        const isActiveBool = isActiveValue === true || isActiveValue === 't' || isActiveValue === 'true';
+        
+        if (isActiveBool) {
+          console.error(`❌ ERROR CRÍTICO: El grupo ${groupId} todavía tiene is_active = ${isActiveValue} después de la actualización`);
+          console.error(`📋 Datos completos del grupo:`, JSON.stringify(verified, null, 2));
+          
+          // Intentar una segunda actualización más explícita
+          console.log(`🔄 Intentando segunda actualización más explícita...`);
+          const retryResult = await query(
+            'UPDATE "public"."groups" SET is_active = $1::boolean, updated_at = NOW() WHERE id = $2 RETURNING id, name, is_active',
+            [false, groupId]
+          );
+          
+          if (retryResult.rows.length > 0) {
+            console.log(`📋 Resultado del retry:`, retryResult.rows[0]);
+          }
+          
+          throw new Error('Error: La actualización no se aplicó correctamente en la base de datos');
+        }
+      } else {
+        console.error(`❌ ERROR: No se encontró el grupo ${groupId} después de la actualización`);
+        throw new Error('Error: El grupo desapareció después de la actualización');
+      }
+
+      console.log(`✅ Grupo ${groupId} eliminado exitosamente (is_active = false)`);
       this.isActive = false;
       return this;
     } catch (error) {
+      console.error(`❌ Error en delete() del grupo ${this.id}:`, error);
       throw new Error(`Error eliminando grupo: ${error.message}`);
     }
   }

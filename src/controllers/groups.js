@@ -405,32 +405,55 @@ const updateGroup = async (req, res) => {
 const deleteGroup = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    console.log(`🗑️ DELETE /api/groups/${id} - Iniciando eliminación...`);
+    console.log(`📋 ID recibido: ${id} (tipo: ${typeof id})`);
+
+    // Convertir ID a número
+    const groupId = parseInt(id);
+    if (isNaN(groupId)) {
+      console.error(`❌ ID inválido: ${id}`);
+      return res.status(400).json({
+        success: false,
+        message: 'ID de grupo inválido'
+      });
+    }
 
     // Buscar el grupo incluyendo inactivos para poder eliminarlo
-    const group = await Group.findById(id, true);
+    console.log(`🔍 Buscando grupo con ID: ${groupId} (incluyendo inactivos)...`);
+    const group = await Group.findById(groupId, true);
+    
     if (!group) {
+      console.error(`❌ Grupo con ID ${groupId} no encontrado`);
       return res.status(404).json({
         success: false,
         message: 'Grupo no encontrado'
       });
     }
 
+    console.log(`✅ Grupo encontrado: "${group.name}" (ID: ${group.id}, isActive: ${group.isActive})`);
+
     // Si ya está inactivo, retornar éxito (ya está eliminado)
     if (!group.isActive) {
+      console.log(`ℹ️ El grupo ${groupId} ya estaba eliminado`);
       return res.json({
         success: true,
         message: 'El grupo ya estaba eliminado'
       });
     }
 
+    console.log(`🔄 Ejecutando delete() en el modelo...`);
     await group.delete();
+
+    console.log(`✅ Grupo ${groupId} eliminado exitosamente`);
 
     res.json({
       success: true,
       message: 'Grupo eliminado exitosamente'
     });
   } catch (error) {
-    console.error('Error eliminando grupo:', error);
+    console.error('❌ Error eliminando grupo:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Error eliminando grupo',
