@@ -8,14 +8,16 @@ const groupsController = require('../controllers/groups');
 
 // Rutas para gestión de batch calls
 
-// Consultar estado de un batch call específico (versión tradicional)
-router.get('/:batchId/status', groupsController.getBatchCallStatus);
+// IMPORTANTE: Las rutas específicas deben ir ANTES de las rutas con parámetros dinámicos
+
+// Listar todos los batch calls del workspace (debe ir primero para evitar conflictos)
+router.get('/', groupsController.listBatchCalls);
 
 // Consultar estado de un batch call con Server-Sent Events (SSE)
 router.get('/:batchId/status/stream', groupsController.getBatchCallStatusSSE);
 
-// Listar todos los batch calls del workspace
-router.get('/', groupsController.listBatchCalls);
+// Consultar estado de un batch call específico (versión tradicional)
+router.get('/:batchId/status', groupsController.getBatchCallStatus);
 
 // Reintentar llamadas fallidas de un batch call
 router.post('/:batchId/retry', groupsController.retryBatchCall);

@@ -256,12 +256,27 @@ class Client {
   // Actualizar cliente
   async update(updateData) {
     try {
+      // Lista de campos permitidos en la tabla clients
+      const allowedFields = [
+        'externalId', 'external_id',
+        'name',
+        'phone',
+        'email',
+        'address',
+        'category',
+        'review',
+        'status',
+        'metadata',
+        'isActive', 'is_active'
+      ];
+      
       const fields = [];
       const values = [];
       let paramCount = 1;
 
       for (const [key, value] of Object.entries(updateData)) {
-        if (value !== undefined) {
+        // Solo procesar campos permitidos y que tengan valor definido
+        if (value !== undefined && allowedFields.includes(key)) {
           const dbField = key === 'externalId' ? 'external_id' : 
                          key === 'isActive' ? 'is_active' : key;
           
@@ -273,11 +288,14 @@ class Client {
             values.push(value);
           }
           paramCount++;
+        } else if (value !== undefined && !allowedFields.includes(key)) {
+          // Log de campos ignorados para debugging
+          console.log(`⚠️ Campo "${key}" ignorado en actualización de cliente (no existe en la tabla)`);
         }
       }
 
       if (fields.length === 0) {
-        throw new Error('No hay campos para actualizar');
+        throw new Error('No hay campos válidos para actualizar');
       }
 
       fields.push(`updated_at = NOW()`);
