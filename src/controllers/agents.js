@@ -541,11 +541,97 @@ const updateAgentById = async (req, res) => {
   }
 };
 
+/**
+ * Crear agente usando Vertex AI para generar la configuración desde un prompt
+ * Recibe: name, prompt, tts_voice_id
+ * @param {Object} req - Request object
+ * @param {Object} res - Response object
+ */
+const createAgentWithPrompt = async (req, res) => {
+  try {
+    console.log('🤖 === CREACIÓN DE AGENTE CON VERTEX AI ===');
+    console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('📥 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    const { name, prompt, tts_voice_id } = req.body;
+
+    // Validar campos requeridos
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El nombre del agente es requerido',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El prompt es requerido y debe ser un string no vacío',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!tts_voice_id || typeof tts_voice_id !== 'string' || tts_voice_id.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'El ID de voz (tts_voice_id) es requerido',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Importar servicio de Vertex AI
+    const vertexAIService = require('../services/vertexAIService');
+
+    // Generar configuración usando Vertex AI con los valores proporcionados
+    console.log('🔄 Generando configuración con Vertex AI...');
+    const configResult = await vertexAIService.generateAgentConfig(prompt, {
+      name: name.trim(),
+      tts_voice_id: tts_voice_id.trim()
+    });
+
+    if (!configResult.success) {
+      console.error('❌ Error generando configuración:', configResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Error al generar configuración del agente con Vertex AI',
+        error: configResult.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log('✅ Configuración generada exitosamente');
+    console.log('📋 Configuración generada:', JSON.stringify(configResult.config, null, 2));
+
+    // Usar la configuración generada para crear el agente
+    // Simular el request body con la configuración generada
+    req.body = configResult.config;
+
+    // Llamar a la función createAgent existente
+    console.log('🔄 Creando agente en ElevenLabs con la configuración generada...');
+    
+    // Llamar directamente a createAgent con la configuración
+    return await createAgent(req, res);
+
+  } catch (error) {
+    console.error('❌ Error inesperado en createAgentWithPrompt:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al crear agente con prompt',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
 module.exports = {
   getPhoneNumbers,
   getAgentInfo,
   listAgents,
   createAgent,
+  createAgentWithPrompt,
   getAgentById,
   updateAgentById
 };

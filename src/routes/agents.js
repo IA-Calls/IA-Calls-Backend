@@ -134,6 +134,12 @@ router.patch('/:agentId', agentsController.updateAgentById);
 // PUT /api/agents/:agentId - Actualizar configuración de un agente (alternativa, mantiene compatibilidad)
 router.put('/:agentId', agentsController.updateAgentById);
 
+// POST /api/agents/create-agent - Crear agente fusionando con JSON base (público, sin autenticación)
+router.post('/create-agent', agentsController.createAgent);
+
+// POST /api/agents/create-with-prompt - Crear agente usando Vertex AI para generar configuración desde un prompt (público, sin autenticación)
+router.post('/create-with-prompt', agentsController.createAgentWithPrompt);
+
 // Middleware para autenticación en todas las demás rutas (después de rutas públicas)
 router.use(authenticate);
 
@@ -160,7 +166,7 @@ router.delete('/:agentId', requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/agents/create - Crear un agente manualmente (solo admins)
+// POST /api/agents/create - Crear un agente manualmente (solo admins, requiere autenticación)
 router.post('/create', requireAdmin, async (req, res) => {
   try {
     const agentConfig = req.body;
@@ -183,8 +189,5 @@ router.post('/create', requireAdmin, async (req, res) => {
     });
   }
 });
-
-// POST /api/agents/create-agent - Crear agente fusionando con JSON base (público o autenticado según necesidad)
-router.post('/create-agent', agentsController.createAgent);
 
 module.exports = router;

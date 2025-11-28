@@ -20,7 +20,9 @@
     "test:logging": "node scripts/test-logging.js"
   },
   "dependencies": {
+    "@google-cloud/aiplatform": "^3.8.0",
     "@google-cloud/storage": "^7.16.0",
+    "@google-cloud/vertexai": "^1.10.0",
     "axios": "^1.10.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
