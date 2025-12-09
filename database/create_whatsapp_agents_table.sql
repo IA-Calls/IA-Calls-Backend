@@ -40,9 +40,6 @@ CREATE TRIGGER update_whatsapp_agents_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_whatsapp_agents_updated_at();
 
--- Agregar columna agent_id a la tabla conversations
-ALTER TABLE conversations 
-ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES whatsapp_agents(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_conversations_agent_id ON conversations(agent_id);
+-- NOTA: La columna agent_id en conversations se agregará después
+-- cuando la tabla conversations exista (ver create_conversations_table.sql)
 

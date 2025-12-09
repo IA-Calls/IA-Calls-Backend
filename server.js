@@ -1,7 +1,7 @@
 const app = require('./src/app');
 const dotenv = require('dotenv');
 const { connectDB } = require('./src/config/database');
-const { connectMongoDB } = require('./src/config/mongodb');
+const { connectFirestore } = require('./src/config/firestore');
 const { databaseHealthCheck } = require('./src/utils/databaseHealthCheck');
 
 // Cargar variables de entorno
@@ -28,12 +28,12 @@ const startServer = async () => {
       console.error('⚠️ El servidor continuará, pero algunas funcionalidades pueden no estar disponibles.');
     }
 
-    // Conectar a MongoDB
-    const mongoConnected = await connectMongoDB();
+    // Conectar a Firestore
+    const firestoreConnected = await connectFirestore();
     
-    if (!mongoConnected) {
-      console.error('❌ No se pudo conectar a MongoDB');
-      console.warn('⚠️ El servidor continuará sin MongoDB. Algunas funcionalidades pueden no estar disponibles.');
+    if (!firestoreConnected) {
+      console.error('❌ No se pudo conectar a Firestore');
+      console.warn('⚠️ El servidor continuará sin Firestore. Algunas funcionalidades pueden no estar disponibles.');
     }
 
     app.listen(PORT, () => {
@@ -43,7 +43,7 @@ const startServer = async () => {
       console.log(`🌐 URL: http://localhost:${PORT}`);
       console.log(`📊 Bases de datos:`);
       console.log(`   ✅ PostgreSQL: Conectado`);
-      console.log(`   ${mongoConnected ? '✅' : '⚠️'} MongoDB: ${mongoConnected ? 'Conectado' : 'No conectado'}`);
+      console.log(`   ${firestoreConnected ? '✅' : '⚠️'} Firestore: ${firestoreConnected ? 'Conectado' : 'No conectado'}`);
       console.log('');
     });
   } catch (error) {

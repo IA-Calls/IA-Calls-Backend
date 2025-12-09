@@ -4,7 +4,10 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 // URL de conexión a MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/nextvoice';
+// Prioridad: MONGODB_URI > MONGODB_CLOUD_URI > localhost
+const MONGODB_URI = process.env.MONGODB_URI || 
+                    process.env.MONGODB_CLOUD_URI || 
+                    'mongodb://localhost:27017/nextvoice';
 
 // Opciones de conexión
 // NOTA: useNewUrlParser y useUnifiedTopology fueron removidos en Mongoose 9.x
