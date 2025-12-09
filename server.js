@@ -2,6 +2,7 @@ const app = require('./src/app');
 const dotenv = require('dotenv');
 const { connectDB } = require('./src/config/database');
 const { connectMongoDB } = require('./src/config/mongodb');
+const { databaseHealthCheck } = require('./src/utils/databaseHealthCheck');
 
 // Cargar variables de entorno
 dotenv.config();
@@ -18,6 +19,15 @@ const startServer = async () => {
       process.exit(1);
     }
 
+    // Verificar y crear tablas si no existen
+    console.log('');
+    const healthCheck = await databaseHealthCheck();
+    
+    if (!healthCheck.success) {
+      console.error('❌ Error en la verificación de la base de datos');
+      console.error('⚠️ El servidor continuará, pero algunas funcionalidades pueden no estar disponibles.');
+    }
+
     // Conectar a MongoDB
     const mongoConnected = await connectMongoDB();
     
@@ -27,12 +37,14 @@ const startServer = async () => {
     }
 
     app.listen(PORT, () => {
-      console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+      console.log('');
+      console.log('🚀 Servidor corriendo en puerto', PORT);
       console.log(`📍 Entorno: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🌐 URL: http://localhost:${PORT}`);
       console.log(`📊 Bases de datos:`);
       console.log(`   ✅ PostgreSQL: Conectado`);
       console.log(`   ${mongoConnected ? '✅' : '⚠️'} MongoDB: ${mongoConnected ? 'Conectado' : 'No conectado'}`);
+      console.log('');
     });
   } catch (error) {
     console.error('❌ Error iniciando servidor:', error);

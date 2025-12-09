@@ -25,6 +25,7 @@
     "create:whatsapp-agents-table": "node scripts/create-whatsapp-agents-table.js",
     "create:agents-table": "node scripts/create-agents-table.js",
     "create:data-sources-table": "node scripts/create-data-sources-table.js",
+    "create:knowledge-items-table": "node scripts/create-knowledge-items-table.js",
     "migrate:add-metadata": "node scripts/migrate-add-metadata.js",
     "setup:vertex-credentials": "node scripts/setup-vertex-ai-credentials.js",
     "setup:vertex-apis": ".\\scripts\\setup-vertex-ai-apis.bat"
@@ -50,6 +51,7 @@
     "nodemon": "^3.1.10",
     "pg": "^8.16.3",
     "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
     "mysql2": "^3.6.5",
     "mssql": "^10.0.1",
     "twilio": "^5.10.4",

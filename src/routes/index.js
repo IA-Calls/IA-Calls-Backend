@@ -33,6 +33,9 @@ const whatsappRoutes = require('./whatsapp');
 // Importar rutas de fuentes de información
 const dataSourcesRoutes = require('./dataSources');
 
+// Importar rutas de elementos de conocimiento
+const knowledgeItemsRoutes = require('./knowledgeItems');
+
 // Importar rutas de webhook
 const webhookRoutes = require('./webhook');
 
@@ -69,6 +72,9 @@ router.use('/whatsapp', whatsappRoutes);
 
 // Rutas de fuentes de información
 router.use('/data-sources', dataSourcesRoutes);
+
+// Rutas de elementos de conocimiento
+router.use('/knowledge-items', knowledgeItemsRoutes);
 
 // Rutas de webhook (SIN autenticación porque ElevenLabs llama desde fuera)
 router.use('/webhook', webhookRoutes);
