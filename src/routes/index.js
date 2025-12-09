@@ -30,6 +30,9 @@ const batchCallsRoutes = require('./batchCalls');
 // Importar rutas de WhatsApp
 const whatsappRoutes = require('./whatsapp');
 
+// Importar rutas de fuentes de información
+const dataSourcesRoutes = require('./dataSources');
+
 // Importar rutas de webhook
 const webhookRoutes = require('./webhook');
 
@@ -63,6 +66,9 @@ router.use('/batch-calls', batchCallsRoutes);
 
 // Rutas de WhatsApp
 router.use('/whatsapp', whatsappRoutes);
+
+// Rutas de fuentes de información
+router.use('/data-sources', dataSourcesRoutes);
 
 // Rutas de webhook (SIN autenticación porque ElevenLabs llama desde fuera)
 router.use('/webhook', webhookRoutes);

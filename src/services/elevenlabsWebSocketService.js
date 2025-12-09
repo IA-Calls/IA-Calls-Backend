@@ -60,26 +60,21 @@ class ElevenLabsWebSocketService {
         ws.on('open', () => {
           console.log(`✅ WebSocket conectado → ${phoneNumber.substring(0, 15)}...`);
 
-          // Enviar mensaje de iniciación
+          // Enviar mensaje de iniciación en modo texto (para WhatsApp)
           const initMessage = {
             type: 'conversation_initiation',
-            conversation_config: {
-              conversation_id: conversationId,
-              input_audio_format: null,
-              output_audio_format: null,
-              mode: 'text'
-            },
-            user: {
-              name: userName,
-              metadata: {
-                source: 'whatsapp',
-                phone: phoneNumber
+            conversation_config_override: {
+              agent: {
+                language: 'es'
+              },
+              conversation: {
+                text_only: true // Modo texto para WhatsApp
               }
             }
           };
 
           ws.send(JSON.stringify(initMessage));
-          console.log(`📤 Iniciación enviada: ${conversationId}`);
+          console.log(`📤 Iniciación enviada en modo texto: ${conversationId}`);
         });
 
         ws.on('message', (data) => {
@@ -122,28 +117,50 @@ class ElevenLabsWebSocketService {
 
               case 'agent_response':
               case 'agent_message':
-                // Extraer respuesta del agente
-                const event = message.agent_response_event || {};
-                let responseText = event.agent_response || event.text || '';
+              case 'agent_text_response':
+              case 'message':
+                // Extraer respuesta del agente en diferentes formatos
+                let responseText = '';
                 
-                // Si está vacío, extraer de audioChunks acumulados
-                if (!responseText || responseText === '...') {
-                  if (connection && connection.audioChunks.length > 0) {
-                    const transcripts = connection.audioChunks
-                      .map(chunk => {
-                        const evt = chunk.audio_event || {};
-                        return evt.transcript || evt.text || '';
-                      })
-                      .filter(t => t && t !== '...' && t.trim())
-                      .join(' ');
-                    
-                    if (transcripts) {
-                      responseText = transcripts;
-                    }
+                console.log(`📨 Mensaje del agente recibido:`, JSON.stringify(message, null, 2).substring(0, 300));
+                
+                // Formato 1: message con role=agent (común en modo texto)
+                if (message.role === 'agent' && message.message) {
+                  responseText = message.message;
+                }
+                
+                // Formato 2: agent_response_event
+                if (!responseText && message.agent_response_event) {
+                  const event = message.agent_response_event;
+                  responseText = event.agent_response || event.text || '';
+                }
+                
+                // Formato 3: agent_text_response (para modo texto)
+                if (!responseText && message.agent_text_response) {
+                  responseText = message.agent_text_response;
+                }
+                
+                // Formato 4: directamente en el mensaje
+                if (!responseText) {
+                  responseText = message.text || message.content || message.response || message.message || '';
+                }
+                
+                // Si está vacío, extraer de audioChunks acumulados (modo audio)
+                if ((!responseText || responseText === '...') && connection && connection.audioChunks.length > 0) {
+                  const transcripts = connection.audioChunks
+                    .map(chunk => {
+                      const evt = chunk.audio_event || {};
+                      return evt.transcript || evt.text || '';
+                    })
+                    .filter(t => t && t !== '...' && t.trim())
+                    .join(' ');
+                  
+                  if (transcripts) {
+                    responseText = transcripts;
                   }
                 }
                 
-                console.log(`🤖 Agente: "${(responseText || '...').substring(0, 50)}..."`);
+                console.log(`🤖 Agente respondió: "${(responseText || '...').substring(0, 100)}..."`);
                 
                 // Guardar en buffer de respuestas pendientes
                 if (connection && responseText && responseText !== '...') {
@@ -172,7 +189,8 @@ class ElevenLabsWebSocketService {
                 break;
 
               default:
-                console.log(`📨 Mensaje: ${message.type}`);
+                // Loggear todos los mensajes desconocidos para debug
+                console.log(`📨 Mensaje desconocido (${message.type}):`, JSON.stringify(message, null, 2).substring(0, 500));
             }
           } catch (error) {
             console.error('❌ Error procesando mensaje WS:', error.message);
@@ -238,12 +256,15 @@ class ElevenLabsWebSocketService {
         connection.pendingResponses = [];
         connection.audioChunks = [];
 
-        // Enviar mensaje del usuario
+        // Enviar mensaje del usuario en modo texto
+        // Según la documentación de WebSocket de ElevenLabs para modo texto
         const userMessage = {
-          type: 'user_message',
+          type: 'message',
+          role: 'user',
           message: message
         };
 
+        console.log(`📤 Payload enviado:`, JSON.stringify(userMessage, null, 2));
         connection.ws.send(JSON.stringify(userMessage));
 
         // Polling del buffer de respuestas

@@ -1,4 +1,5 @@
 const { elevenlabsService } = require('../agents');
+const Agent = require('../models/Agent');
 
 /**
  * Obtener números de teléfono disponibles en ElevenLabs
@@ -107,56 +108,100 @@ const getAgentInfo = async (req, res) => {
 };
 
 /**
- * Listar todos los agentes del usuario
+ * Listar todos los agentes del usuario autenticado
+ * Solo muestra agentes que pertenecen al usuario
  * @param {Object} req - Request object
  * @param {Object} res - Response object
  */
 const listAgents = async (req, res) => {
   try {
-    console.log('🤖 === SOLICITUD DE LISTA DE AGENTES ===');
-    console.log('👤 Usuario:', req.user?.username || 'No autenticado');
-    console.log('🕐 Timestamp:', new Date().toISOString());
-
-    const result = await elevenlabsService.listAgents();
-
-    if (result.success) {
-      // Formatear respuesta para mejor legibilidad
-      const agents = result.data?.agents || result.data || [];
-      const count = Array.isArray(agents) ? agents.length : 0;
-      
-      console.log(`✅ Agentes obtenidos exitosamente: ${count} agentes encontrados`);
-      
-      // Formatear agentes para respuesta más clara
-      const formattedAgents = Array.isArray(agents) ? agents.map(agent => ({
-        agent_id: agent.agent_id || agent.id,
-        name: agent.name,
-        created_at: agent.created_at,
-        updated_at: agent.updated_at,
-        status: agent.status,
-        language: agent.conversation_config?.agent?.language || 'N/A',
-        voice_id: agent.conversation_config?.tts?.voice_id || 'N/A'
-      })) : [];
-      
-      return res.status(200).json({
-        success: true,
-        message: 'Agentes obtenidos exitosamente',
-        data: {
-          agents: formattedAgents,
-          raw_data: result.data, // Incluir datos completos también
-          count: count,
-          timestamp: new Date().toISOString()
-        }
-      });
-    } else {
-      console.error('❌ Error obteniendo agentes:', result.error);
-      
-      return res.status(500).json({
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: 'Error obteniendo agentes de ElevenLabs',
-        error: result.error,
+        message: 'Usuario no autenticado',
         timestamp: new Date().toISOString()
       });
     }
+
+    console.log('🤖 === SOLICITUD DE LISTA DE AGENTES ===');
+    console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('🆔 User ID:', userId);
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    // Obtener agentes del usuario desde la BD
+    const userAgents = await Agent.findByUserId(userId);
+    
+    if (userAgents.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No hay agentes registrados para este usuario',
+        data: {
+          agents: [],
+          count: 0,
+          timestamp: new Date().toISOString()
+        }
+      });
+    }
+
+    // Obtener información detallada de cada agente desde ElevenLabs
+    const agentsWithDetails = [];
+    
+    for (const agent of userAgents) {
+      try {
+        const elevenLabsResult = await elevenlabsService.getAgent(agent.agentId);
+        
+        if (elevenLabsResult.success) {
+          agentsWithDetails.push({
+            id: agent.id,
+            agent_id: agent.agentId,
+            name: agent.name,
+            created_at: agent.createdAt,
+            updated_at: agent.updatedAt,
+            // Datos de ElevenLabs
+            elevenlabs_data: elevenLabsResult.data,
+            language: elevenLabsResult.data?.conversation_config?.agent?.language || 'N/A',
+            voice_id: elevenLabsResult.data?.conversation_config?.tts?.voice_id || 'N/A',
+            status: elevenLabsResult.data?.status || 'N/A'
+          });
+        } else {
+          // Si no se puede obtener de ElevenLabs, incluir solo datos locales
+          console.warn(`⚠️ No se pudo obtener información de ElevenLabs para agente ${agent.agentId}`);
+          agentsWithDetails.push({
+            id: agent.id,
+            agent_id: agent.agentId,
+            name: agent.name,
+            created_at: agent.createdAt,
+            updated_at: agent.updatedAt,
+            error: 'No se pudo obtener información de ElevenLabs'
+          });
+        }
+      } catch (error) {
+        console.error(`❌ Error obteniendo detalles del agente ${agent.agentId}:`, error.message);
+        // Incluir agente con error
+        agentsWithDetails.push({
+          id: agent.id,
+          agent_id: agent.agentId,
+          name: agent.name,
+          created_at: agent.createdAt,
+          updated_at: agent.updatedAt,
+          error: error.message
+        });
+      }
+    }
+    
+    console.log(`✅ Agentes obtenidos exitosamente: ${agentsWithDetails.length} agentes encontrados`);
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Agentes obtenidos exitosamente',
+      data: {
+        agents: agentsWithDetails,
+        count: agentsWithDetails.length,
+        timestamp: new Date().toISOString()
+      }
+    });
 
   } catch (error) {
     console.error('❌ Error inesperado en listAgents:', error);
@@ -379,22 +424,89 @@ const createAgent = async (req, res) => {
     console.log('📋 JSON fusionado que se enviará a ElevenLabs:');
     console.log(JSON.stringify(mergedConfig, null, 2));
 
+    // Validar que el usuario esté autenticado
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     // Llamar a ElevenLabs
     const result = await elevenlabsService.createAgentWithConfig(mergedConfig);
 
     if (result.success) {
-      console.log(`✅ Agente creado exitosamente con ID: ${result.agent_id}`);
+      console.log(`✅ Agente creado exitosamente en ElevenLabs con ID: ${result.agent_id}`);
       
-      return res.status(201).json({
-        success: true,
-        message: 'Agente creado exitosamente en ElevenLabs',
-        data: {
+      // Guardar el agente en la BD con el user_id
+      try {
+        const agentName = mergedConfig.name || 'Agente sin nombre';
+        const savedAgent = await Agent.create({
           agent_id: result.agent_id,
-          agent_data: result.data,
-          merged_config: mergedConfig,
-          timestamp: new Date().toISOString()
+          user_id: userId,
+          name: agentName,
+          metadata: {
+            merged_config: mergedConfig,
+            created_via: 'api',
+            created_at: new Date().toISOString()
+          }
+        });
+        
+        console.log(`✅ Agente guardado en BD con ID local: ${savedAgent.id}`);
+        
+        return res.status(201).json({
+          success: true,
+          message: 'Agente creado exitosamente en ElevenLabs y registrado en el sistema',
+          data: {
+            id: savedAgent.id,
+            agent_id: result.agent_id,
+            name: agentName,
+            user_id: userId,
+            agent_data: result.data,
+            merged_config: mergedConfig,
+            timestamp: new Date().toISOString()
+          }
+        });
+      } catch (dbError) {
+        console.error('❌ Error guardando agente en BD:', dbError.message);
+        
+        // Si el agente ya existe en BD (duplicado), devolver éxito pero con advertencia
+        if (dbError.message.includes('duplicate') || dbError.message.includes('UNIQUE')) {
+          console.warn('⚠️ El agente ya existe en BD, intentando recuperarlo...');
+          
+          const existingAgent = await Agent.findByAgentIdAndUserId(result.agent_id, userId);
+          
+          if (existingAgent) {
+            return res.status(200).json({
+              success: true,
+              message: 'Agente creado en ElevenLabs (ya existía en BD)',
+              data: {
+                id: existingAgent.id,
+                agent_id: result.agent_id,
+                name: existingAgent.name,
+                user_id: userId,
+                agent_data: result.data,
+                warning: 'El agente ya estaba registrado en el sistema'
+              }
+            });
+          }
         }
-      });
+        
+        // Si hay otro error, devolver el error pero el agente ya está en ElevenLabs
+        return res.status(201).json({
+          success: true,
+          message: 'Agente creado en ElevenLabs pero hubo un error al guardarlo en BD',
+          warning: dbError.message,
+          data: {
+            agent_id: result.agent_id,
+            agent_data: result.data,
+            merged_config: mergedConfig,
+            timestamp: new Date().toISOString()
+          }
+        });
+      }
     } else {
       console.error('❌ Error creando agente:', result.error);
       
@@ -420,12 +532,14 @@ const createAgent = async (req, res) => {
 
 /**
  * Obtener información de un agente específico por ID
+ * Valida que el agente pertenezca al usuario autenticado
  * @param {Object} req - Request object
  * @param {Object} res - Response object
  */
 const getAgentById = async (req, res) => {
   try {
     const { agentId } = req.params;
+    const userId = req.user?.id;
     
     if (!agentId) {
       return res.status(400).json({
@@ -435,20 +549,49 @@ const getAgentById = async (req, res) => {
       });
     }
 
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     console.log('🤖 === SOLICITUD DE INFORMACIÓN DE AGENTE ===');
     console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('🆔 User ID:', userId);
     console.log('🆔 Agent ID:', agentId);
     console.log('🕐 Timestamp:', new Date().toISOString());
 
+    // Validar que el agente pertenezca al usuario
+    const belongsToUser = await Agent.belongsToUser(agentId, userId);
+    
+    if (!belongsToUser) {
+      console.warn(`⚠️ Intento de acceso no autorizado: Usuario ${userId} intentó acceder al agente ${agentId}`);
+      
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado: El agente no pertenece al usuario autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Obtener información del agente desde ElevenLabs
     const result = await elevenlabsService.getAgent(agentId);
 
     if (result.success) {
       console.log('✅ Información del agente obtenida exitosamente');
       
+      // Obtener también los datos locales del agente
+      const localAgent = await Agent.findByAgentIdAndUserId(agentId, userId);
+      
       return res.status(200).json({
         success: true,
         message: 'Agente obtenido exitosamente',
-        data: result.data,
+        data: {
+          ...result.data,
+          local_data: localAgent ? localAgent.toJSON() : null
+        },
         timestamp: new Date().toISOString()
       });
     } else {
@@ -456,7 +599,7 @@ const getAgentById = async (req, res) => {
       
       return res.status(404).json({
         success: false,
-        message: 'Agente no encontrado o error obteniendo información',
+        message: 'Agente no encontrado en ElevenLabs o error obteniendo información',
         error: result.error,
         timestamp: new Date().toISOString()
       });
@@ -476,6 +619,7 @@ const getAgentById = async (req, res) => {
 
 /**
  * Actualizar configuración de un agente
+ * Valida que el agente pertenezca al usuario autenticado
  * @param {Object} req - Request object
  * @param {Object} res - Response object
  */
@@ -483,6 +627,7 @@ const updateAgentById = async (req, res) => {
   try {
     const { agentId } = req.params;
     const updateData = req.body;
+    const userId = req.user?.id;
     
     if (!agentId) {
       return res.status(400).json({
@@ -492,8 +637,17 @@ const updateAgentById = async (req, res) => {
       });
     }
 
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
     console.log('🔄 === ACTUALIZACIÓN DE AGENTE ===');
     console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('🆔 User ID:', userId);
     console.log('🆔 Agent ID:', agentId);
     console.log('📥 Datos de actualización:', JSON.stringify(updateData, null, 2));
     console.log('🕐 Timestamp:', new Date().toISOString());
@@ -507,10 +661,43 @@ const updateAgentById = async (req, res) => {
       });
     }
 
+    // Validar que el agente pertenezca al usuario
+    const belongsToUser = await Agent.belongsToUser(agentId, userId);
+    
+    if (!belongsToUser) {
+      console.warn(`⚠️ Intento de actualización no autorizada: Usuario ${userId} intentó actualizar el agente ${agentId}`);
+      
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado: El agente no pertenece al usuario autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Actualizar en ElevenLabs
     const result = await elevenlabsService.updateAgent(agentId, updateData);
 
     if (result.success) {
-      console.log(`✅ Agente ${agentId} actualizado exitosamente`);
+      console.log(`✅ Agente ${agentId} actualizado exitosamente en ElevenLabs`);
+      
+      // Actualizar también en BD local si hay cambios en name o metadata
+      try {
+        const localUpdates = {};
+        if (updateData.name) {
+          localUpdates.name = updateData.name;
+        }
+        if (updateData.metadata) {
+          localUpdates.metadata = updateData.metadata;
+        }
+        
+        if (Object.keys(localUpdates).length > 0) {
+          await Agent.update(agentId, userId, localUpdates);
+          console.log(`✅ Agente ${agentId} actualizado en BD local`);
+        }
+      } catch (dbError) {
+        console.warn(`⚠️ Error actualizando agente en BD local: ${dbError.message}`);
+        // No fallar la operación si solo falla la actualización local
+      }
       
       return res.status(200).json({
         success: true,
@@ -612,6 +799,7 @@ const createAgentWithPrompt = async (req, res) => {
     console.log('🔄 Creando agente en ElevenLabs con la configuración generada...');
     
     // Llamar directamente a createAgent con la configuración
+    // createAgent ya maneja el guardado en BD con user_id
     return await createAgent(req, res);
 
   } catch (error) {
@@ -626,6 +814,258 @@ const createAgentWithPrompt = async (req, res) => {
   }
 };
 
+/**
+ * Eliminar un agente
+ * Valida que el agente pertenezca al usuario autenticado
+ * @param {Object} req - Request object
+ * @param {Object} res - Response object
+ */
+const deleteAgentById = async (req, res) => {
+  try {
+    const { agentId } = req.params;
+    const userId = req.user?.id;
+    
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID del agente es requerido',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    console.log('🗑️ === ELIMINACIÓN DE AGENTE ===');
+    console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('🆔 User ID:', userId);
+    console.log('🆔 Agent ID:', agentId);
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    // Validar que el agente pertenezca al usuario
+    const belongsToUser = await Agent.belongsToUser(agentId, userId);
+    
+    if (!belongsToUser) {
+      console.warn(`⚠️ Intento de eliminación no autorizada: Usuario ${userId} intentó eliminar el agente ${agentId}`);
+      
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado: El agente no pertenece al usuario autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Eliminar de ElevenLabs
+    const result = await elevenlabsService.deleteAgent(agentId);
+
+    if (result.success) {
+      // Eliminar también de la BD local
+      const deleted = await Agent.delete(agentId, userId);
+      
+      if (deleted) {
+        console.log(`✅ Agente ${agentId} eliminado exitosamente de ElevenLabs y BD local`);
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Agente eliminado exitosamente',
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.warn(`⚠️ Agente eliminado de ElevenLabs pero no se pudo eliminar de BD local`);
+        
+        return res.status(200).json({
+          success: true,
+          message: 'Agente eliminado de ElevenLabs (hubo un problema al eliminarlo de BD local)',
+          warning: 'El agente fue eliminado de ElevenLabs pero puede quedar registro en BD local',
+          timestamp: new Date().toISOString()
+        });
+      }
+    } else {
+      console.error('❌ Error eliminando agente:', result.error);
+      
+      return res.status(400).json({
+        success: false,
+        message: 'Error al eliminar agente en ElevenLabs',
+        error: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error inesperado en deleteAgentById:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al eliminar agente',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Endpoint para prueba rápida de llamada
+ * POST /api/agents/test-call
+ * Permite hacer una llamada de prueba rápida con un agente
+ */
+const testCall = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Usuario no autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const {
+      agent_id,
+      agent_phone_number_id,
+      recipient_name,
+      recipient_phone_number,
+      dynamic_variables = {}
+    } = req.body;
+
+    console.log('📞 === PRUEBA RÁPIDA DE LLAMADA ===');
+    console.log('👤 Usuario:', req.user?.username || 'No autenticado');
+    console.log('🆔 User ID:', userId);
+    console.log('📥 Datos recibidos:', JSON.stringify(req.body, null, 2));
+    console.log('🕐 Timestamp:', new Date().toISOString());
+
+    // Validaciones
+    if (!agent_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'El campo "agent_id" es requerido',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    if (!recipient_phone_number) {
+      return res.status(400).json({
+        success: false,
+        message: 'El campo "recipient_phone_number" es requerido',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Validar que el agente pertenezca al usuario
+    const Agent = require('../models/Agent');
+    const belongsToUser = await Agent.belongsToUser(agent_id, userId);
+    
+    if (!belongsToUser) {
+      console.warn(`⚠️ Intento de uso no autorizado: Usuario ${userId} intentó usar el agente ${agent_id}`);
+      
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado: El agente no pertenece al usuario autenticado',
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Obtener número de teléfono del agente si no se proporciona
+    let finalPhoneNumberId = agent_phone_number_id;
+    
+    if (!finalPhoneNumberId) {
+      console.log('⚠️ No se proporcionó agent_phone_number_id, obteniendo uno disponible...');
+      const phoneResult = await elevenlabsService.getPhoneNumbers();
+      
+      if (phoneResult.success && phoneResult.phoneNumbers && phoneResult.phoneNumbers.length > 0) {
+        const selectedPhone = phoneResult.phoneNumbers[0];
+        finalPhoneNumberId = selectedPhone.phone_number_id || selectedPhone.id;
+        console.log(`✅ Usando número disponible con ID: ${finalPhoneNumberId}`);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'No hay números de teléfono disponibles. Por favor, proporciona "agent_phone_number_id"',
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    // Preparar datos para la llamada
+    const callName = `Prueba Rápida - ${recipient_name || 'Sin nombre'} - ${new Date().toLocaleString()}`;
+    
+    const batchData = {
+      callName: callName,
+      agentId: agent_id,
+      agentPhoneNumberId: finalPhoneNumberId,
+      recipients: [
+        {
+          phone_number: recipient_phone_number,
+          variables: {
+            name: recipient_name || 'Cliente',
+            ...dynamic_variables
+          }
+        }
+      ],
+      scheduledTimeUnix: null // Llamada inmediata
+    };
+
+    console.log('📤 Iniciando llamada de prueba...');
+    console.log(`   Agente: ${agent_id}`);
+    console.log(`   Número del agente: ${finalPhoneNumberId}`);
+    console.log(`   Destinatario: ${recipient_phone_number}`);
+    console.log(`   Nombre: ${recipient_name || 'Sin nombre'}`);
+    console.log(`   Variables:`, JSON.stringify(batchData.recipients[0].variables));
+
+    // Realizar la llamada
+    const result = await elevenlabsService.submitBatchCall(batchData);
+
+    if (result.success) {
+      const batchId = result.data?.batch_id || result.data?.id;
+      
+      console.log(`✅ Llamada de prueba iniciada exitosamente`);
+      console.log(`   Batch ID: ${batchId}`);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Llamada de prueba iniciada exitosamente',
+        data: {
+          batch_id: batchId,
+          agent_id: agent_id,
+          agent_phone_number_id: finalPhoneNumberId,
+          recipient: {
+            name: recipient_name || 'Sin nombre',
+            phone_number: recipient_phone_number,
+            variables: batchData.recipients[0].variables
+          },
+          call_name: callName,
+          scheduled_time: null, // Inmediata
+          status: 'pending'
+        },
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.error('❌ Error iniciando llamada de prueba:', result.error);
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Error al iniciar la llamada de prueba',
+        error: result.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error inesperado en testCall:', error);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor al realizar prueba de llamada',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
 module.exports = {
   getPhoneNumbers,
   getAgentInfo,
@@ -633,6 +1073,8 @@ module.exports = {
   createAgent,
   createAgentWithPrompt,
   getAgentById,
-  updateAgentById
+  updateAgentById,
+  deleteAgentById,
+  testCall
 };
 

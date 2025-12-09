@@ -71,3 +71,5 @@ CLAVE_GCP.json
 *.json
 !package.json
 !package-lock.json 
+# Google Cloud Credentials
+vertex-ai-key.json

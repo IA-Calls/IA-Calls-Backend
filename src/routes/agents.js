@@ -93,8 +93,10 @@ router.get('/voices', async (req, res) => {
   }
 });
 
-// GET /api/agents - Listar todos los agentes (público, sin autenticación)
-// IMPORTANTE: Esta ruta debe ir ANTES del middleware de autenticación y antes de /:agentId
+// Middleware para autenticación en rutas de agentes (requerido para multiusuario)
+router.use(authenticate);
+
+// GET /api/agents - Listar todos los agentes del usuario autenticado
 router.get('/', agentsController.listAgents);
 
 // GET /api/agents/list - Listar agentes (alternativa, mantiene compatibilidad)
@@ -124,47 +126,26 @@ router.get('/test', async (req, res) => {
   }
 });
 
-// GET /api/agents/:agentId - Obtener información de un agente específico (público)
-// IMPORTANTE: Debe ir después de todas las rutas específicas pero antes del middleware de auth
+// GET /api/agents/:agentId - Obtener información de un agente específico (requiere autenticación)
 router.get('/:agentId', agentsController.getAgentById);
 
-// PATCH /api/agents/:agentId - Actualizar configuración de un agente (público)
+// PATCH /api/agents/:agentId - Actualizar configuración de un agente (requiere autenticación)
 router.patch('/:agentId', agentsController.updateAgentById);
 
 // PUT /api/agents/:agentId - Actualizar configuración de un agente (alternativa, mantiene compatibilidad)
 router.put('/:agentId', agentsController.updateAgentById);
 
-// POST /api/agents/create-agent - Crear agente fusionando con JSON base (público, sin autenticación)
+// DELETE /api/agents/:agentId - Eliminar un agente (requiere autenticación y ownership)
+router.delete('/:agentId', agentsController.deleteAgentById);
+
+// POST /api/agents/create-agent - Crear agente fusionando con JSON base (requiere autenticación)
 router.post('/create-agent', agentsController.createAgent);
 
-// POST /api/agents/create-with-prompt - Crear agente usando Vertex AI para generar configuración desde un prompt (público, sin autenticación)
+// POST /api/agents/create-with-prompt - Crear agente usando Vertex AI para generar configuración desde un prompt (requiere autenticación)
 router.post('/create-with-prompt', agentsController.createAgentWithPrompt);
 
-// Middleware para autenticación en todas las demás rutas (después de rutas públicas)
-router.use(authenticate);
-
-// DELETE /api/agents/:agentId - Eliminar un agente (solo admins)
-router.delete('/:agentId', requireAdmin, async (req, res) => {
-  try {
-    const { agentId } = req.params;
-
-    const result = await elevenlabsService.deleteAgent(agentId);
-    
-    res.json({
-      success: result.success,
-      error: result.error || null,
-      message: result.success ? 'Agente eliminado exitosamente' : 'Error eliminando agente'
-    });
-
-  } catch (error) {
-    console.error('Error eliminando agente:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
-    });
-  }
-});
+// POST /api/agents/test-call - Prueba rápida de llamada (requiere autenticación)
+router.post('/test-call', agentsController.testCall);
 
 // POST /api/agents/create - Crear un agente manualmente (solo admins, requiere autenticación)
 router.post('/create', requireAdmin, async (req, res) => {

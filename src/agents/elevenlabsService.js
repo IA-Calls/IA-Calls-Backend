@@ -1197,6 +1197,8 @@ class ElevenLabsService {
       console.log(`🆕 Iniciando conversación con agente: ${agentId}`);
 
       // Endpoint para iniciar conversación de texto
+      // Según la documentación de ElevenLabs, el endpoint correcto es:
+      // POST /v1/convai/conversation/text (singular, no plural)
       const payload = {
         agent_id: agentId
       };
@@ -1205,6 +1207,9 @@ class ElevenLabsService {
       if (firstMessage) {
         payload.first_message = firstMessage;
       }
+
+      console.log(`📤 Payload para crear conversación:`, JSON.stringify(payload, null, 2));
+      console.log(`🌐 URL: ${this.baseUrl}/convai/conversation/text`);
 
       const response = await axios.post(
         `${this.baseUrl}/convai/conversation/text`,
@@ -1233,23 +1238,29 @@ class ElevenLabsService {
       console.error(`❌ Error iniciando conversación:`, error.message);
       
       let errorMessage = error.message;
+      let errorDetails = null;
 
       if (error.response) {
-        const errorData = error.response.data;
-        if (errorData && typeof errorData === 'object') {
-          if (errorData.detail) {
-            errorMessage = `Error ${error.response.status}: ${errorData.detail.message || errorData.detail.status || JSON.stringify(errorData.detail)}`;
+        errorDetails = error.response.data;
+        console.error(`📋 Detalles del error:`, JSON.stringify(errorDetails, null, 2));
+        console.error(`📋 Status: ${error.response.status}`);
+        console.error(`📋 URL intentada: ${error.config?.url}`);
+        
+        if (errorDetails && typeof errorDetails === 'object') {
+          if (errorDetails.detail) {
+            errorMessage = `Error ${error.response.status}: ${errorDetails.detail.message || errorDetails.detail.status || JSON.stringify(errorDetails.detail)}`;
           } else {
-            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorData)}`;
+            errorMessage = `Error ${error.response.status}: ${JSON.stringify(errorDetails)}`;
           }
         } else {
-          errorMessage = `Error ${error.response.status}: ${errorData || error.response.statusText}`;
+          errorMessage = `Error ${error.response.status}: ${errorDetails || error.response.statusText}`;
         }
       }
 
       return {
         success: false,
         error: errorMessage,
+        details: errorDetails,
         message: 'Error al iniciar conversación'
       };
     }

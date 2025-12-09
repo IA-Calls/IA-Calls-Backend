@@ -20,6 +20,7 @@ app.use(cors({
     // Lista de orígenes permitidos desde variables de entorno
     const allowedOrigins = [
       process.env.CLIENT_URL || 'http://localhost:3000',
+      'http://localhost:3001',
       'https://ia-calls.vercel.app',
       'https://gb334706-5000.use2.devtunnels.ms', // Agregar la URL del backend también
       // Agregar más URLs aquí si es necesario

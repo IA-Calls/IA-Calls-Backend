@@ -316,50 +316,214 @@ class WhatsAppController {
     }
   }
 
-  // Webhook para recibir actualizaciones de Vonage (opcional)
+  // Verificación del webhook de Meta (GET)
+  async verifyWebhook(req, res) {
+    try {
+      const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || 'miTokenUltraSeguro123';
+      const mode = req.query['hub.mode'];
+      const token = req.query['hub.verify_token'];
+      const challenge = req.query['hub.challenge'];
+
+      console.log('🔍 Verificación de webhook recibida:', {
+        mode,
+        token: token ? '***' : 'no proporcionado',
+        challenge: challenge ? '***' : 'no proporcionado'
+      });
+
+      if (mode === 'subscribe' && token === verifyToken) {
+        console.log('✅ Webhook verificado correctamente');
+        res.status(200).send(challenge);
+      } else {
+        console.log('❌ Verificación fallida:', {
+          modeMatch: mode === 'subscribe',
+          tokenMatch: token === verifyToken
+        });
+        res.sendStatus(403);
+      }
+    } catch (error) {
+      console.error('❌ Error verificando webhook:', error.message);
+      res.sendStatus(500);
+    }
+  }
+
+  // Webhook para recibir actualizaciones de Meta (POST)
   async handleWebhook(req, res) {
     try {
       const webhookData = req.body;
       
-      console.log('📨 Webhook recibido de Vonage:', JSON.stringify(webhookData, null, 2));
+      console.log('📨 Webhook recibido de Meta:', JSON.stringify(webhookData, null, 2));
 
-      // Procesar el webhook según el tipo de evento
-      if (webhookData.message_uuid) {
-        // Buscar la conversación por message_uuid
-        const conversations = await WhatsAppConversation.findAll();
-        const conversation = conversations.find(conv => 
-          conv.vonageMessageId === webhookData.message_uuid
-        );
+      // Responder 200 OK inmediatamente a Meta (importante para que no reintente)
+      res.status(200).json({ success: true });
 
-        if (conversation) {
-          // Actualizar estado según el tipo de evento
-          let newStatus = 'sent';
-          if (webhookData.status === 'delivered') {
-            newStatus = 'delivered';
-          } else if (webhookData.status === 'read') {
-            newStatus = 'read';
-          } else if (webhookData.status === 'failed') {
-            newStatus = 'failed';
-          }
+      // Procesar asíncronamente después de responder
+      setImmediate(async () => {
+        try {
+          const ConversationWhatsApp = require('../models/ConversationWhatsApp');
+          const ConversationPG = require('../models/ConversationPG');
+          const whatsappEventService = require('../services/whatsappEventService');
 
-          await conversation.updateStatus(newStatus, {
-            messageReceived: webhookData,
-            receivedAt: new Date()
-          });
-
-          console.log(`✅ Estado actualizado para conversación ${conversation.id}: ${newStatus}`);
+          // Meta envía los datos en entry[0].changes[0].value
+          if (webhookData.entry && webhookData.entry[0] && webhookData.entry[0].changes) {
+            const changes = webhookData.entry[0].changes;
+            
+            for (const change of changes) {
+              if (change.value) {
+                const value = change.value;
+                
+                // Procesar mensajes entrantes
+                if (value.messages && value.messages.length > 0) {
+                  for (const message of value.messages) {
+                    const phoneNumber = message.from;
+                    const messageContent = message.text?.body || message.type;
+                    const messageId = message.id;
+                    
+                    console.log('📱 Mensaje entrante recibido:', {
+                      from: phoneNumber,
+                      type: message.type,
+                      messageId: messageId,
+                      content: messageContent
+                    });
+                    
+                    // Buscar o crear conversación en MongoDB
+                    let mongoConv = await ConversationWhatsApp.findOne({ phoneNumber });
+                    const isNewConversation = !mongoConv;
+                    
+                    if (!mongoConv) {
+                      // Crear nueva conversación en MongoDB
+                      mongoConv = new ConversationWhatsApp({
+                        phoneNumber: phoneNumber,
+                        clientName: 'Cliente',
+                        conversationSummary: 'Conversación iniciada',
+                        status: 'active'
+                      });
+                    }
+                    
+                    // Agregar mensaje recibido
+                    await mongoConv.addMessage('received', messageContent, messageId, {
+                      type: message.type,
+                      timestamp: new Date(message.timestamp * 1000).toISOString()
+                    });
+                    
+                    // Actualizar last_message en PostgreSQL
+                    await ConversationPG.update(phoneNumber, {
+                      lastMessage: messageContent,
+                      hasStarted: true
+                    });
+                    
+                    console.log(`✅ Mensaje guardado para ${phoneNumber}`);
+                    
+                    // Procesar mensaje con agente si está asignado
+                    const whatsappAgentService = require('../services/whatsappAgentService');
+                    const agentResponse = await whatsappAgentService.processMessageWithAgent(
+                      phoneNumber,
+                      messageContent
+                    );
+                    
+                    // Si el agente respondió, enviar la respuesta por WhatsApp
+                    if (agentResponse.success && agentResponse.shouldRespond && agentResponse.response) {
+                      try {
+                        const axios = require('axios');
+                        const accessToken = process.env.WHATSAPP_TOKEN;
+                        const phoneNumberId = process.env.PHONE_NUMBER_ID;
+                        
+                        const responsePayload = {
+                          messaging_product: 'whatsapp',
+                          to: phoneNumber,
+                          type: 'text',
+                          text: { body: agentResponse.response }
+                        };
+                        
+                        await axios.post(
+                          `https://graph.facebook.com/v23.0/${phoneNumberId}/messages`,
+                          responsePayload,
+                          {
+                            headers: {
+                              'Authorization': `Bearer ${accessToken}`,
+                              'Content-Type': 'application/json'
+                            }
+                          }
+                        );
+                        
+                        console.log(`✅ Respuesta del agente enviada a ${phoneNumber}`);
+                        
+                        // Guardar respuesta del agente en MongoDB
+                        await mongoConv.addMessage('sent', agentResponse.response, null, {
+                          type: 'agent_response',
+                          conversation_id: agentResponse.conversationId
+                        });
+                        
+                        // Actualizar last_message
+                        await ConversationPG.update(phoneNumber, {
+                          lastMessage: agentResponse.response
+                        });
+                        
+                        // Emitir evento SSE para la respuesta del agente
+                        whatsappEventService.emitNewMessage(phoneNumber, {
+                          messageId: null,
+                          content: agentResponse.response,
+                          type: 'sent',
+                          phoneNumber,
+                          isAgentResponse: true
+                        });
+                        
+                      } catch (sendError) {
+                        console.error('❌ Error enviando respuesta del agente:', sendError.message);
+                      }
+                    }
+                    
+                    // Emitir evento SSE para notificar a clientes conectados
+                    whatsappEventService.emitNewMessage(phoneNumber, {
+                      messageId,
+                      content: messageContent,
+                      type: 'received',
+                      phoneNumber
+                    });
+                    
+                    // Si es nueva conversación, emitir evento
+                    if (isNewConversation) {
+                      whatsappEventService.emitNewConversation({
+                        phoneNumber,
+                        clientName: 'Cliente'
+                      });
+                    } else {
+                      // Emitir actualización de conversación
+                      whatsappEventService.emitConversationUpdate(phoneNumber, {
+                        lastMessage: messageContent,
+                        messageCount: mongoConv.messages.length
+                      });
         }
       }
-
-      res.status(200).json({ success: true });
+                }
+                
+                // Procesar actualizaciones de estado
+                if (value.statuses && value.statuses.length > 0) {
+                  for (const status of value.statuses) {
+                    console.log('📊 Estado de mensaje actualizado:', {
+                      messageId: status.id,
+                      status: status.status,
+                      recipient: status.recipient_id
+                    });
+                    
+                    // Emitir evento de actualización de estado
+                    whatsappEventService.emitConversationUpdate(status.recipient_id, {
+                      messageStatus: status.status,
+                      messageId: status.id
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error procesando webhook asíncronamente:', error.message);
+        }
+      });
 
     } catch (error) {
       console.error('❌ Error procesando webhook:', error.message);
-      res.status(500).json({
-        success: false,
-        error: 'Error procesando webhook',
-        details: error.message
-      });
+      // Aún así responder 200 para que Meta no reintente
+      res.status(200).json({ success: false, error: error.message });
     }
   }
 }
