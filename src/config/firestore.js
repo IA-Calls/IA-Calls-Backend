@@ -42,23 +42,27 @@ function initializeFirestore() {
       return false;
     }
 
-    // Inicializar Firebase Admin
+    // Inicializar Firebase Admin con configuración de base de datos
     admin.initializeApp({
       credential: admin.credential.cert(credentials),
-      projectId: credentials.project_id
+      projectId: credentials.project_id,
+      databaseURL: `https://${credentials.project_id}.firebaseio.com`
     });
 
     // Obtener instancia de Firestore
     db = admin.firestore();
 
-    // Configurar settings de Firestore
+    // Configurar settings de Firestore con preferencias de región
     db.settings({
-      ignoreUndefinedProperties: true
+      ignoreUndefinedProperties: true,
+      // No especificar host permite que use el default de Google
+      timestampsInSnapshots: true
     });
 
     isConnected = true;
     console.log('✅ Firestore inicializado exitosamente');
     console.log(`📍 Proyecto: ${credentials.project_id}`);
+    console.log(`📍 Base de datos: (default)`);
     
     return true;
   } catch (error) {
@@ -89,18 +93,41 @@ const connectFirestore = async () => {
 
     // Verificar conexión haciendo una operación simple
     try {
-      // Intentar leer una colección para verificar la conexión
-      const testRef = db.collection('_health_check');
-      await testRef.limit(1).get();
+      // Intentar crear un documento temporal para verificar la conexión
+      const testRef = db.collection('_health_check').doc('test');
+      await testRef.set({
+        timestamp: new Date(),
+        status: 'connected'
+      }, { merge: true });
       
       console.log('✅ Firestore conectado exitosamente');
       console.log(`📍 Base de datos: Firestore (${process.env.GOOGLE_CLOUD_PROJECT_ID})`);
+      console.log('📝 Test de escritura exitoso');
+      
+      // Limpiar el documento de test
+      try {
+        await testRef.delete();
+      } catch (deleteError) {
+        // No importa si falla la eliminación
+      }
       
       return true;
     } catch (testError) {
-      // Si falla el test, puede ser que la colección no exista, pero la conexión está bien
-      console.log('✅ Firestore conectado (test de lectura omitido)');
-      return true;
+      console.warn('⚠️ Test de Firestore falló:', testError.message);
+      console.warn('⚠️ Firestore puede no estar habilitado en tu proyecto Google Cloud');
+      console.warn('⚠️ Para habilitarlo:');
+      console.warn('   1. Ve a https://console.cloud.google.com/firestore');
+      console.warn('   2. Selecciona tu proyecto:', process.env.GOOGLE_CLOUD_PROJECT_ID);
+      console.warn('   3. Haz clic en "Crear base de datos"');
+      console.warn('   4. Selecciona modo "Native" o "Datastore"');
+      console.warn('   5. Elige una región (ej: us-central1)');
+      console.warn('');
+      console.warn('💾 Usando almacenamiento en memoria como fallback');
+      
+      // Marcar como no conectado pero no fallar
+      isConnected = false;
+      db = null;
+      return false;
     }
   } catch (error) {
     isConnected = false;
@@ -175,10 +202,14 @@ process.on('SIGTERM', async () => {
 module.exports = {
   admin,
   db: getFirestore,
+  getFirestore,
   connectFirestore,
   closeFirestore,
   isFirestoreConnected,
   getFirestoreInfo,
   initializeFirestore
 };
+
+
+
 

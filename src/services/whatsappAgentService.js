@@ -114,7 +114,7 @@ class WhatsAppAgentService {
    */
   async getConversationHistory(phoneNumber) {
     try {
-      const mongoConversation = await ConversationWhatsApp.findByPhoneNumber(phoneNumber);
+      const mongoConversation = await ConversationWhatsApp.findOne({ phoneNumber });
       
       if (!mongoConversation || !mongoConversation.messages) {
         return [];

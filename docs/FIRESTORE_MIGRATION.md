@@ -255,3 +255,7 @@ El backend mostrará en los logs al iniciar:
 
 El sistema ahora usa Firestore en lugar de MongoDB. Todas las conversaciones de WhatsApp se almacenan en Firestore usando las credenciales de Google Cloud que ya tienes configuradas.
 
+
+
+
+

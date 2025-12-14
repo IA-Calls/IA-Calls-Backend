@@ -38,3 +38,7 @@ Asegúrate de:
 2. Configurar IP whitelist en MongoDB Atlas
 3. Usar variables de entorno, nunca hardcodear credenciales
 
+
+
+
+

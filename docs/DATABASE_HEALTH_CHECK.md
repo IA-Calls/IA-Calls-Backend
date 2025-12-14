@@ -258,3 +258,7 @@ DATABASE_LOCAL_URL=postgresql://user:password@localhost:5432/dbname
 - [PostgreSQL Documentation](https://www.postgresql.org/docs/)
 - [Node.js pg Library](https://node-postgres.com/)
 
+
+
+
+

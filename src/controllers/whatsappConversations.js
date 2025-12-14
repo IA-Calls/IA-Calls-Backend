@@ -36,7 +36,7 @@ class WhatsAppConversationsController {
             // Buscar en MongoDB por phoneNumber
             const mongoConv = await ConversationWhatsApp.findOne({
               phoneNumber: conv.user_phone
-            }).sort({ lastMessageAt: -1 });
+            });
 
             return {
               id: conv.id,
@@ -144,10 +144,10 @@ class WhatsAppConversationsController {
         agent = await WhatsAppAgent.findById(pgConversation.agent_id);
       }
 
-      // Obtener mensajes de MongoDB
+      // Obtener mensajes de Firestore
       const mongoConversation = await ConversationWhatsApp.findOne({
         phoneNumber: phoneNumber
-      }).sort({ lastMessageAt: -1 });
+      });
 
       const messages = mongoConversation?.messages || [];
 
@@ -212,7 +212,7 @@ class WhatsAppConversationsController {
           try {
             const mongoConv = await ConversationWhatsApp.findOne({
               phoneNumber: conv.user_phone
-            }).sort({ lastMessageAt: -1 });
+            });
 
             return {
               id: conv.id,
