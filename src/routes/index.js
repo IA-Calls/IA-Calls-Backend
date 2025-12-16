@@ -6,6 +6,7 @@ const { getStatus, getHealth } = require('../controllers/index');
 
 // Importar rutas de autenticación
 const authRoutes = require('./auth');
+const facebookAuthRoutes = require('./facebookAuth');
 
 // Importar rutas de usuarios
 const userRoutes = require('./users');
@@ -44,6 +45,7 @@ const { authenticate } = require('../middleware/auth');
 
 // Rutas de autenticación
 router.use('/auth', authRoutes);
+router.use('/auth/facebook', facebookAuthRoutes);
 
 // Rutas de usuarios
 router.use('/users', userRoutes);

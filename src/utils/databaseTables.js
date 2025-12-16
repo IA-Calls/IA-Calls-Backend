@@ -54,6 +54,12 @@ const DATABASE_TABLES = [
     sqlFile: path.join(__dirname, '../../database/create_knowledge_items_table.sql'),
     description: 'Tabla de elementos de conocimiento para agentes',
     dependencies: ['users', 'whatsapp_agents'] // Depende de users y whatsapp_agents
+  },
+  {
+    name: 'facebook_page_tokens',
+    sqlFile: path.join(__dirname, '../../database/create_facebook_page_tokens_table.sql'),
+    description: 'Tabla de tokens de páginas de Facebook/Meta',
+    dependencies: ['users'] // Depende de users
   }
 ];
 
