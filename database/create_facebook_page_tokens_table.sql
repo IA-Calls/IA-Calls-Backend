@@ -37,24 +37,19 @@ CREATE INDEX IF NOT EXISTS idx_facebook_page_tokens_page_id ON facebook_page_tok
 CREATE INDEX IF NOT EXISTS idx_facebook_page_tokens_is_active ON facebook_page_tokens(is_active);
 
 -- Trigger para actualizar updated_at automáticamente
--- Nota: Esta función puede ya existir de otras tablas, se ignora el error si existe
-DO $$
+-- Usamos CREATE OR REPLACE que no falla si ya existe
+CREATE OR REPLACE FUNCTION update_facebook_page_tokens_updated_at()
+RETURNS TRIGGER AS '
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_proc WHERE proname = 'update_facebook_page_tokens_updated_at'
-  ) THEN
-    CREATE FUNCTION update_facebook_page_tokens_updated_at()
-    RETURNS TRIGGER AS $func$
-    BEGIN
-      NEW.updated_at = NOW();
-      RETURN NEW;
-    END;
-    $func$ LANGUAGE plpgsql;
-  END IF;
-END $$;
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+' LANGUAGE plpgsql;
 
--- Crear trigger (se ignora si ya existe)
+-- Eliminar trigger si existe
 DROP TRIGGER IF EXISTS trigger_update_facebook_page_tokens_updated_at ON facebook_page_tokens;
+
+-- Crear trigger
 CREATE TRIGGER trigger_update_facebook_page_tokens_updated_at
 BEFORE UPDATE ON facebook_page_tokens
 FOR EACH ROW

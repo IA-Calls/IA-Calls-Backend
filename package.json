@@ -8,6 +8,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "setup": "node scripts/setup.js",
+    "db": "node scripts/setup-database.js",
     "migrate": "node scripts/migrate.js",
     "migrate:agent-id": "node scripts/migration.js",
     "migrate:cloud": "node scripts/migrate-to-cloud.js",
